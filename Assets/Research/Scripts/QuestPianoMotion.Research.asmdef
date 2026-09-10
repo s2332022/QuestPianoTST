@@ -1,0 +1,18 @@
+{
+  "name": "QuestPianoMotion.Research",
+  "rootNamespace": "QuestPianoMotion.Research",
+  "references": [
+    "Unity.XR.Hands",
+    "Unity.XR.Management",
+    "Unity.UGUI"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
