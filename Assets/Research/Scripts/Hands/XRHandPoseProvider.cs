@@ -17,6 +17,8 @@ namespace QuestPianoMotion.Research
         IHandPoseProcessor m_Processor;
         double m_NextRetry;
         long m_CallbackIndex;
+        bool m_CaptureDynamic = true;
+        bool m_CaptureBeforeRender;
 
         public event Action<HandPoseFrame> RawFrameUpdated;
         public event Action<HandPoseFrame> DisplayFrameUpdated;
@@ -61,6 +63,12 @@ namespace QuestPianoMotion.Research
             m_Processor = processor ?? new IdentityHandPoseProcessor();
         }
 
+        public void ConfigureUpdateTypes(bool captureDynamic, bool captureBeforeRender)
+        {
+            m_CaptureDynamic = captureDynamic;
+            m_CaptureBeforeRender = captureBeforeRender;
+        }
+
         public bool TryGetWorldJoint(bool left, XRHandJointID id, out Pose worldPose)
         {
             worldPose = Pose.identity;
@@ -102,7 +110,9 @@ namespace QuestPianoMotion.Research
         void OnUpdatedHands(XRHandSubsystem subsystem, XRHandSubsystem.UpdateSuccessFlags flags,
             XRHandSubsystem.UpdateType updateType)
         {
-            if (!subsystem.running || updateType != XRHandSubsystem.UpdateType.Dynamic)
+            if (!subsystem.running ||
+                (updateType == XRHandSubsystem.UpdateType.Dynamic && !m_CaptureDynamic) ||
+                (updateType == XRHandSubsystem.UpdateType.BeforeRender && !m_CaptureBeforeRender))
                 return;
             m_Raw.AbsoluteTimeSeconds = m_Clock.AbsoluteSeconds;
             m_Raw.UnityFrame = Time.frameCount;

@@ -1,0 +1,21 @@
+{
+  "name": "QuestPianoMotion.Research.Editor",
+  "rootNamespace": "QuestPianoMotion.Research.Editor",
+  "references": [
+    "QuestPianoMotion.Research",
+    "Unity.InputSystem",
+    "Unity.XR.CoreUtils",
+    "Unity.UGUI"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

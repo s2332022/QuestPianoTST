@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace QuestPianoMotion.Research
 {
@@ -19,6 +20,7 @@ namespace QuestPianoMotion.Research
         public bool Pressed { get; private set; }
         public int Velocity { get; private set; }
         public PianoKeyVisualState VisualState { get; private set; }
+        public Renderer Renderer => m_Renderer;
 
         public PianoKeyView(int note, bool black, Transform transform, Renderer renderer, Color restColor)
         {
@@ -74,6 +76,31 @@ namespace QuestPianoMotion.Research
         }
 
         public void ApplyMidi(in MidiMessage message) => m_State.Apply(in message);
+
+        public void ConfigureMinimal(Transform host)
+        {
+            if (KeyboardRoot != null && host != null)
+            {
+                KeyboardRoot.SetParent(host, false);
+                KeyboardRoot.localPosition = Vector3.zero;
+                KeyboardRoot.localRotation = Quaternion.identity;
+            }
+
+            var unlit = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
+            if (unlit != null && m_SharedMaterial != null)
+                m_SharedMaterial.shader = unlit;
+
+            foreach (var key in m_Keys.Values)
+            {
+                var renderer = key.Renderer;
+                renderer.shadowCastingMode = ShadowCastingMode.Off;
+                renderer.receiveShadows = false;
+                renderer.lightProbeUsage = LightProbeUsage.Off;
+                renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+                var collider = renderer.GetComponent<Collider>();
+                if (collider != null) Destroy(collider);
+            }
+        }
 
         public void ApplyCalibration(PianoCalibrationData calibration)
         {

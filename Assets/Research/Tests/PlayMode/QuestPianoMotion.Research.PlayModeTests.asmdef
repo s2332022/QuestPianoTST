@@ -1,0 +1,22 @@
+{
+  "name": "QuestPianoMotion.Research.PlayModeTests",
+  "rootNamespace": "QuestPianoMotion.Research.Tests",
+  "references": [
+    "QuestPianoMotion.Research",
+    "Unity.UGUI"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [
+    "UNITY_INCLUDE_TESTS"
+  ],
+  "versionDefines": [],
+  "noEngineReferences": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}

@@ -6,6 +6,10 @@ namespace QuestPianoMotion.Research
     [DisallowMultipleComponent]
     public sealed class PianoResearchRuntime : MonoBehaviour
     {
+        [SerializeField] bool m_MinimalScene;
+        [SerializeField] Transform m_PianoRoot;
+        [SerializeField] Transform m_UiRoot;
+
         XRHandPoseProvider m_Hands;
         AndroidMidiInput m_Midi;
         VirtualPianoKeyboard m_Keyboard;
@@ -15,11 +19,17 @@ namespace QuestPianoMotion.Research
         void Awake()
         {
             ResearchServices.TrackingOrigin = ResearchServices.FindTrackingOrigin();
-            m_Hands = gameObject.AddComponent<XRHandPoseProvider>();
-            m_Midi = gameObject.AddComponent<AndroidMidiInput>();
-            m_Keyboard = gameObject.AddComponent<VirtualPianoKeyboard>();
-            m_Calibration = gameObject.AddComponent<PianoCalibrationManager>();
-            m_Recorder = gameObject.AddComponent<SynchronizedSessionRecorder>();
+            m_Hands = GetOrAdd<XRHandPoseProvider>();
+            m_Midi = GetOrAdd<AndroidMidiInput>();
+            m_Keyboard = GetOrAdd<VirtualPianoKeyboard>();
+            m_Calibration = GetOrAdd<PianoCalibrationManager>();
+            m_Recorder = GetOrAdd<SynchronizedSessionRecorder>();
+
+            if (m_MinimalScene)
+            {
+                m_Keyboard.ConfigureMinimal(m_PianoRoot);
+                GetOrAdd<MinimalHandVisualizer>().Initialize(m_Hands);
+            }
 
             var camera = Camera.main;
             if (camera != null && m_Keyboard.KeyboardRoot != null)
@@ -38,8 +48,29 @@ namespace QuestPianoMotion.Research
             m_Recorder.Initialize(m_Hands, m_Midi, m_Keyboard, m_Calibration,
                 camera != null ? camera.transform : null);
 
-            var panel = gameObject.AddComponent<ResearchStatusPanel>();
-            panel.Initialize(m_Hands, m_Midi, m_Calibration, m_Recorder);
+            if (m_MinimalScene)
+            {
+                var panel = GetOrAdd<MinimalResearchStatusPanel>();
+                panel.Initialize(m_Hands, m_Midi, m_Calibration, m_Recorder, m_UiRoot);
+            }
+            else
+            {
+                var panel = GetOrAdd<ResearchStatusPanel>();
+                panel.Initialize(m_Hands, m_Midi, m_Calibration, m_Recorder);
+            }
+        }
+
+        public void ConfigureMinimalScene(Transform pianoRoot, Transform uiRoot)
+        {
+            m_MinimalScene = true;
+            m_PianoRoot = pianoRoot;
+            m_UiRoot = uiRoot;
+        }
+
+        T GetOrAdd<T>() where T : Component
+        {
+            var component = GetComponent<T>();
+            return component != null ? component : gameObject.AddComponent<T>();
         }
 
         void OnDestroy()

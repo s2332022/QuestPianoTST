@@ -10,7 +10,7 @@ namespace QuestPianoMotion.Research
     [DefaultExecutionOrder(-150)]
     [DisallowMultipleComponent]
     [Preserve]
-    public sealed class AndroidMidiInput : MonoBehaviour
+    public sealed class AndroidMidiInput : MonoBehaviour, Distributed.IMidiInput
     {
         readonly ConcurrentQueue<string> m_MessageQueue = new ConcurrentQueue<string>();
         readonly ConcurrentQueue<string> m_ConnectionQueue = new ConcurrentQueue<string>();
@@ -137,6 +137,22 @@ namespace QuestPianoMotion.Research
 
         public string SelectedDeviceName => SelectedDeviceIndex >= 0 && SelectedDeviceIndex < m_Devices.Count
             ? m_Devices[SelectedDeviceIndex].Name : "None";
+
+        bool Distributed.IMidiInput.SelectDevice(int index)
+        {
+            if (index < 0 || index >= m_Devices.Count) return false;
+            SelectedDeviceIndex = index;
+            return true;
+        }
+
+        bool Distributed.IMidiInput.ConnectSelectedDevice()
+        {
+            if (SelectedDeviceIndex < 0 || SelectedDeviceIndex >= m_Devices.Count) return false;
+            ConnectSelectedDevice();
+            return true;
+        }
+
+        void Distributed.IMidiInput.Disconnect() => SafeClose();
 
         // Called by UnitySendMessage. Queue only; GameObjects are never mutated from the Java MIDI callback.
         [Preserve]

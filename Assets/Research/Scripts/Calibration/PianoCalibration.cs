@@ -93,6 +93,34 @@ namespace QuestPianoMotion.Research
         public void StartCalibration() => Begin();
         public void RegisterNextPoint() => CaptureNextPoint();
         public void ToggleCaptureHand() => UseLeftHand = !UseLeftHand;
+        public void SelectLeftHand() => UseLeftHand = true;
+        public void SelectRightHand() => UseLeftHand = false;
+
+        public void CaptureA()
+        {
+            Begin();
+            CaptureNextPoint();
+        }
+
+        public void CaptureB()
+        {
+            if (m_PointCount != 1)
+            {
+                StatusText = "Capture A first.";
+                return;
+            }
+            CaptureNextPoint();
+        }
+
+        public void CaptureC()
+        {
+            if (m_PointCount != 2)
+            {
+                StatusText = "Capture A and B first.";
+                return;
+            }
+            CaptureNextPoint();
+        }
         public void SaveCalibration() => Save();
         public void LoadCalibration() => Load();
 
