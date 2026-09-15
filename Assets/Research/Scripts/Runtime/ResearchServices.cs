@@ -1,4 +1,4 @@
-using System;
+using Unity.XR.CoreUtils;
 using UnityEngine;
 
 namespace QuestPianoMotion.Research
@@ -10,15 +10,17 @@ namespace QuestPianoMotion.Research
 
         public static Transform FindTrackingOrigin()
         {
-            var originType = Type.GetType("Unity.XR.CoreUtils.XROrigin, Unity.XR.CoreUtils");
-            if (originType != null)
+            var xrOrigin = Object.FindAnyObjectByType<XROrigin>();
+            if (xrOrigin != null)
             {
-                var component = UnityEngine.Object.FindAnyObjectByType(originType) as Component;
-                if (component != null) return component.transform;
+                if (xrOrigin.CameraFloorOffsetObject != null)
+                    return xrOrigin.CameraFloorOffsetObject.transform;
+                if (xrOrigin.Origin != null)
+                    return xrOrigin.Origin.transform;
             }
+
             var camera = Camera.main;
-            return camera != null && camera.transform.parent != null && camera.transform.parent.parent != null
-                ? camera.transform.parent.parent : null;
+            return camera != null && camera.transform.parent != null ? camera.transform.parent : null;
         }
     }
 }

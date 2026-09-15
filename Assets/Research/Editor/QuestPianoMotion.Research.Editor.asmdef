@@ -5,6 +5,7 @@
     "QuestPianoMotion.Research",
     "Unity.InputSystem",
     "Unity.XR.CoreUtils",
+    "Unity.XR.Interaction.Toolkit",
     "Unity.UGUI"
   ],
   "includePlatforms": [

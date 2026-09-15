@@ -24,6 +24,8 @@ namespace QuestPianoMotion.Research
         public event Action<HandPoseFrame> DisplayFrameUpdated;
 
         public bool IsReady => m_Subsystem != null && m_Subsystem.running;
+        public bool SubsystemRunning => m_Subsystem != null && m_Subsystem.running;
+        public string SubsystemName => m_Subsystem != null ? m_Subsystem.GetType().Name : "Unavailable";
         public bool LeftTracked => m_Display != null && m_Display.LeftTracked;
         public bool RightTracked => m_Display != null && m_Display.RightTracked;
         public HandPoseFrame LatestDisplayFrame => m_Display;

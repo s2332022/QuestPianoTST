@@ -189,7 +189,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 596477383}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 1987083620}
+  m_Script: {fileID: 11500000, guid: a5f75aab61a945dd83daf95ca6e4710b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: QuestPianoMotion.Research::QuestPianoMotion.Research.Distributed.PcMidiInput
 --- !u!4 &596477385
@@ -360,21 +360,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!115 &1987083620
-MonoScript:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_Name: 
-  serializedVersion: 7
-  m_DefaultReferences: {}
-  m_Icon: {fileID: 0}
-  m_Type: 0
-  m_ExecutionOrder: 0
-  m_ClassName: PcMidiInput
-  m_Namespace: QuestPianoMotion.Research.Distributed
-  m_AssemblyName: QuestPianoMotion.Research
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

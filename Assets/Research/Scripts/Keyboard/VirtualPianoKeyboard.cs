@@ -86,7 +86,7 @@ namespace QuestPianoMotion.Research
                 KeyboardRoot.localRotation = Quaternion.identity;
             }
 
-            var unlit = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
+            var unlit = Resources.Load<Shader>("ResearchUnlit") ?? Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
             if (unlit != null && m_SharedMaterial != null)
                 m_SharedMaterial.shader = unlit;
 
@@ -119,8 +119,8 @@ namespace QuestPianoMotion.Research
         {
             KeyboardRoot = new GameObject("Virtual Piano Keyboard C4-C5").transform;
             KeyboardRoot.SetParent(transform, false);
-            KeyboardRoot.localPosition = new Vector3(-0.15f, -0.35f, 0.65f);
-            var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            KeyboardRoot.localPosition = Vector3.zero;
+            var shader = Resources.Load<Shader>("ResearchUnlit") ?? Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
             m_SharedMaterial = new Material(shader) { enableInstancing = true };
             const float whiteWidth = 0.036f;
             const float whiteDepth = 0.16f;

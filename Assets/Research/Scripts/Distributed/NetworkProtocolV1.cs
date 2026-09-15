@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace QuestPianoMotion.Research.Distributed
 {
-    public enum PacketType : ushort { Pose=1, Midi=2, ClockSyncRequest=3, ClockSyncResponse=4, SessionControl=5, SessionAck=6, Heartbeat=7, Diagnostic=8, CorrectedPose=9 }
+    public enum PacketType : ushort { Pose=1, Midi=2, ClockSyncRequest=3, ClockSyncResponse=4, SessionControl=5, SessionAck=6, Heartbeat=7, Diagnostic=8, CorrectedPose=9, StartupHello=10, StartupAck=11 }
     public enum SessionCommand : byte { Start=1, Stop=2 }
     public enum SessionAckStatus : byte { Accepted=1, AlreadyApplied=2, Rejected=3 }
 
@@ -32,6 +32,8 @@ namespace QuestPianoMotion.Research.Distributed
     public struct SessionAckPacket { public PacketHeader Header; public SessionCommand Command; public SessionAckStatus Status; public uint CommandId; }
     public struct HeartbeatPacket { public PacketHeader Header; public uint LastReceivedSequence; public byte State; public double ClockOffset,Rtt; }
     public struct DiagnosticPacket { public PacketHeader Header; public uint PosePackets,SendFailures,Dropped,QueueDepth; }
+    public struct StartupHelloPacket { public PacketHeader Header; public uint InstanceId,ApplicationVersionHash,BuildIdHash; }
+    public struct StartupAckPacket { public PacketHeader Header; public uint InstanceId; }
 
     public static class NetworkProtocolV1
     {
@@ -83,6 +85,11 @@ namespace QuestPianoMotion.Research.Distributed
         public static int WriteHeartbeat(byte[] data,uint seq,double now,Guid sessionId,uint lastSequence,byte state,double offset=0d,double rtt=0d){WriteHeader(data,PacketType.Heartbeat,seq,now,sessionId,21);var o=HeaderSize;WriteU32(data,ref o,lastSequence);data[o++]=state;WriteF64(data,ref o,offset);WriteF64(data,ref o,rtt);return o;}
         public static bool TryReadHeartbeat(byte[] data,int length,out HeartbeatPacket p){p=default;if(!TryReadHeader(data,length,out var h)||h.Type!=PacketType.Heartbeat||h.PayloadLength!=21)return false;var o=HeaderSize;p.Header=h;p.LastReceivedSequence=ReadU32(data,ref o);p.State=data[o++];p.ClockOffset=ReadF64(data,ref o);p.Rtt=ReadF64(data,ref o);return true;}
         public static int WriteDiagnostic(byte[] data,uint seq,double now,Guid sessionId,uint packets,uint failures,uint dropped,uint depth){WriteHeader(data,PacketType.Diagnostic,seq,now,sessionId,16);var o=HeaderSize;WriteU32(data,ref o,packets);WriteU32(data,ref o,failures);WriteU32(data,ref o,dropped);WriteU32(data,ref o,depth);return o;}
+        public static bool TryReadDiagnostic(byte[] data,int length,out DiagnosticPacket p){p=default;if(!TryReadHeader(data,length,out var h)||h.Type!=PacketType.Diagnostic||h.PayloadLength!=16)return false;var o=HeaderSize;p.Header=h;p.PosePackets=ReadU32(data,ref o);p.SendFailures=ReadU32(data,ref o);p.Dropped=ReadU32(data,ref o);p.QueueDepth=ReadU32(data,ref o);return true;}
+        public static int WriteStartupHello(byte[] data,uint seq,double now,Guid sessionId,uint instanceId,uint applicationVersionHash,uint buildIdHash){WriteHeader(data,PacketType.StartupHello,seq,now,sessionId,12);var o=HeaderSize;WriteU32(data,ref o,instanceId);WriteU32(data,ref o,applicationVersionHash);WriteU32(data,ref o,buildIdHash);return o;}
+        public static bool TryReadStartupHello(byte[] data,int length,out StartupHelloPacket p){p=default;if(!TryReadHeader(data,length,out var h)||h.Type!=PacketType.StartupHello||h.PayloadLength!=12)return false;var o=HeaderSize;p.Header=h;p.InstanceId=ReadU32(data,ref o);p.ApplicationVersionHash=ReadU32(data,ref o);p.BuildIdHash=ReadU32(data,ref o);return true;}
+        public static int WriteStartupAck(byte[] data,uint seq,double now,Guid sessionId,uint instanceId){WriteHeader(data,PacketType.StartupAck,seq,now,sessionId,4);var o=HeaderSize;WriteU32(data,ref o,instanceId);return o;}
+        public static bool TryReadStartupAck(byte[] data,int length,out StartupAckPacket p){p=default;if(!TryReadHeader(data,length,out var h)||h.Type!=PacketType.StartupAck||h.PayloadLength!=4)return false;var o=HeaderSize;p.Header=h;p.InstanceId=ReadU32(data,ref o);return true;}
 
         static void WriteHeader(byte[] d,PacketType type,uint seq,double ts,Guid id,ushort payload){var o=0;WriteU32(d,ref o,Magic);WriteU16(d,ref o,Version);WriteU16(d,ref o,(ushort)type);WriteU32(d,ref o,seq);WriteF64(d,ref o,ts);var g=id.ToByteArray();Buffer.BlockCopy(g,0,d,o,16);o+=16;WriteU16(d,ref o,payload);}
         static void WritePose(byte[] d,ref int o,Pose p){WriteVector3(d,ref o,p.position);WriteQuaternion(d,ref o,p.rotation);}

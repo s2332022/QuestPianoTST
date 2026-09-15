@@ -10,6 +10,7 @@ namespace QuestPianoMotion.Research.Distributed
         bool m_HasValue; uint m_Highest; ulong m_Received, m_Missing, m_Duplicates, m_OutOfOrder;
         public ulong Received=>m_Received; public ulong Missing=>m_Missing; public ulong Duplicates=>m_Duplicates; public ulong OutOfOrder=>m_OutOfOrder;
         public double LossRatio=>m_Received+m_Missing==0?0d:(double)m_Missing/(m_Received+m_Missing);
+        public void Reset(){m_HasValue=false;m_Highest=0;m_Received=0;m_Missing=0;m_Duplicates=0;m_OutOfOrder=0;}
         public SequenceObservation Observe(uint sequence)
         {
             ++m_Received; if(!m_HasValue){m_HasValue=true;m_Highest=sequence;return default;}
