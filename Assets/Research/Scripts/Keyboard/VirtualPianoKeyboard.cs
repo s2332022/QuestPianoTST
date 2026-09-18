@@ -120,6 +120,9 @@ namespace QuestPianoMotion.Research
             KeyboardRoot = new GameObject("Virtual Piano Keyboard C4-C5").transform;
             KeyboardRoot.SetParent(transform, false);
             KeyboardRoot.localPosition = Vector3.zero;
+            var geometry = new GameObject("Keyboard Geometry").transform;
+            geometry.SetParent(KeyboardRoot, false);
+            geometry.localPosition = new Vector3(0.01692f, 0f, 0.080f);
             var shader = Resources.Load<Shader>("ResearchUnlit") ?? Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
             m_SharedMaterial = new Material(shader) { enableInstancing = true };
             const float whiteWidth = 0.036f;
@@ -130,7 +133,7 @@ namespace QuestPianoMotion.Research
                 var black = IsBlack(note);
                 var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 go.name = $"Key {note} {(black ? "Black" : "White")}";
-                go.transform.SetParent(KeyboardRoot, false);
+                go.transform.SetParent(geometry, false);
                 var x = black ? (whiteIndex - 0.5f) * whiteWidth : whiteIndex * whiteWidth;
                 var y = black ? 0.012f : 0f;
                 var z = black ? 0.035f : 0f;

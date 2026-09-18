@@ -44,7 +44,8 @@ namespace QuestPianoMotion.Research
             m_Calibration.Initialize(m_Hands);
             m_Midi.MessageReceived += OnMidi;
             m_Calibration.CalibrationChanged += m_Keyboard.ApplyCalibration;
-            if (m_Calibration.Current.valid) m_Keyboard.ApplyCalibration(m_Calibration.Current);
+            if (m_Calibration.Current != null && m_Calibration.Current.valid)
+                m_Keyboard.ApplyCalibration(m_Calibration.Current);
             m_Recorder.Initialize(m_Hands, m_Midi, m_Keyboard, m_Calibration,
                 camera != null ? camera.transform : null);
 

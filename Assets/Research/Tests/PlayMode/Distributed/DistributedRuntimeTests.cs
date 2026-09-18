@@ -25,7 +25,7 @@ namespace QuestPianoMotion.Research.Tests
         }
         [UnityTest] public IEnumerator RecorderCreatesAndClosesAllSessionFiles()
         {
-            var go=new GameObject("recorder",typeof(DistributedSessionRecorder));var recorder=go.GetComponent<DistributedSessionRecorder>();Assert.That(recorder.Begin(Guid.NewGuid(),"127.0.0.1","test"),Is.True);recorder.End("test");Assert.That(recorder.State,Is.EqualTo(DistributedSessionState.Completed));var expected=new[]{"session_metadata.json","quest_hand_joints.csv","quest_head_pose.csv","pc_midi_events.csv","quest_keyboard_state.csv","clock_sync.csv","network_diagnostics.csv","session_summary.json"};foreach(var file in expected)Assert.That(File.Exists(Path.Combine(recorder.SessionPath,file)),Is.True,file);UnityEngine.Object.Destroy(go);yield return null;
+            var go=new GameObject("recorder",typeof(DistributedSessionRecorder));var recorder=go.GetComponent<DistributedSessionRecorder>();Assert.That(recorder.Begin(Guid.NewGuid(),"127.0.0.1","test"),Is.True);recorder.End("test");Assert.That(recorder.State,Is.EqualTo(DistributedSessionState.Completed));var expected=new[]{"session_metadata.json","quest_hand_joints.csv","quest_head_pose.csv","pc_midi_events.csv","quest_keyboard_state.csv","clock_sync.csv","network_diagnostics.csv","session_summary.json"};foreach(var file in expected)Assert.That(File.Exists(Path.Combine(recorder.SessionPath,file)),Is.True,file);var validation=DistributedSessionLogValidator.ValidateDirectory(recorder.SessionPath);Assert.That(validation.Status,Is.EqualTo(SessionLogValidationStatus.Valid),string.Join("; ",validation.Errors));UnityEngine.Object.Destroy(go);yield return null;
         }
     }
 }

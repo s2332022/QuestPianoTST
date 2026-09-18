@@ -13,7 +13,10 @@ namespace QuestPianoMotion.Research
         int m_PointCount;
 
         public event Action<PianoCalibrationData> CalibrationChanged;
-        public PianoCalibrationData Current { get; private set; } = new PianoCalibrationData();
+        public PianoCalibrationData LastCalibrationAttempt { get; private set; } = new PianoCalibrationData();
+        public PianoCalibrationData LastValidCalibration { get; private set; }
+        public PianoCalibrationData CurrentAppliedCalibration { get; private set; }
+        public PianoCalibrationData Current => CurrentAppliedCalibration;
         public bool IsCapturing { get; private set; }
         public bool UseLeftHand { get; private set; } = true;
         public string CaptureHandName => UseLeftHand ? "Left" : "Right";
@@ -86,23 +89,29 @@ namespace QuestPianoMotion.Research
             IsCapturing = false;
             if (PianoCalibrationMath.TryCalculate(m_Points[0], m_Points[1], m_Points[2], out var result))
             {
-                Current = result;
+                LastCalibrationAttempt = result;
+                LastValidCalibration = result;
+                CurrentAppliedCalibration = result;
                 StatusText = "Valid (not saved)";
-                CalibrationChanged?.Invoke(Current);
+                CalibrationChanged?.Invoke(CurrentAppliedCalibration);
                 return true;
             }
-            Current = result;
+            LastCalibrationAttempt = result;
             StatusText = result.validationMessage;
             return false;
         }
 
         public bool Save()
         {
-            if (Current == null || !Current.valid) { StatusText = "No valid calibration to save."; return false; }
+            if (CurrentAppliedCalibration == null || !CurrentAppliedCalibration.valid)
+            {
+                StatusText = "No valid calibration to save.";
+                return false;
+            }
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(PersistentPath));
-                File.WriteAllText(PersistentPath, JsonUtility.ToJson(Current, true));
+                File.WriteAllText(PersistentPath, JsonUtility.ToJson(CurrentAppliedCalibration, true));
                 StatusText = "Saved";
                 return true;
             }
@@ -117,19 +126,55 @@ namespace QuestPianoMotion.Research
         {
             try
             {
-                if (!File.Exists(PersistentPath)) { StatusText = "No saved calibration"; return false; }
+                if (!File.Exists(PersistentPath))
+                {
+                    RecordAttemptFailure("No saved calibration");
+                    StatusText = LastCalibrationAttempt.validationMessage;
+                    return false;
+                }
                 var loaded = JsonUtility.FromJson<PianoCalibrationData>(File.ReadAllText(PersistentPath));
-                if (loaded == null || !loaded.valid) { StatusText = "Saved calibration is invalid"; return false; }
-                Current = loaded;
+                if (loaded == null || !loaded.valid)
+                {
+                    RecordAttemptFailure("Saved calibration is invalid");
+                    StatusText = LastCalibrationAttempt.validationMessage;
+                    return false;
+                }
+                if (!PianoCalibrationMath.IsSupportedFormatVersion(loaded.formatVersion))
+                {
+                    RecordAttemptFailure($"Unsupported calibration format version: {loaded.formatVersion}");
+                    StatusText = $"Unsupported calibration format version: {loaded.formatVersion}";
+                    return false;
+                }
+                if (loaded.formatVersion == 0)
+                    loaded.formatVersion = PianoCalibrationMath.CurrentFormatVersion;
+                LastCalibrationAttempt = loaded;
+                LastValidCalibration = loaded;
+                CurrentAppliedCalibration = loaded;
                 StatusText = "Loaded";
-                CalibrationChanged?.Invoke(Current);
+                CalibrationChanged?.Invoke(CurrentAppliedCalibration);
                 return true;
             }
             catch (Exception exception)
             {
-                StatusText = "Load failed: " + exception.Message;
+                RecordAttemptFailure("Load failed: " + exception.Message);
+                StatusText = LastCalibrationAttempt.validationMessage;
                 return false;
             }
+        }
+
+        public void ClearCalibration()
+        {
+            IsCapturing = false;
+            m_PointCount = 0;
+            LastCalibrationAttempt = new PianoCalibrationData();
+            LastValidCalibration = null;
+            CurrentAppliedCalibration = null;
+            StatusText = "Not calibrated";
+        }
+
+        void RecordAttemptFailure(string message)
+        {
+            LastCalibrationAttempt = new PianoCalibrationData { validationMessage = message };
         }
     }
 }

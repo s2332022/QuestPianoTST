@@ -75,7 +75,10 @@ namespace QuestPianoMotion.Research.Tests
             Assert.That(Object.FindObjectsByType<VirtualPianoKeyboard>(FindObjectsSortMode.None).Length, Is.EqualTo(1));
             Assert.That(keyboard.KeyboardRoot.parent, Is.SameAs(pianoHost.transform));
             Assert.That(keyboard.KeyboardRoot.localPosition, Is.EqualTo(Vector3.zero));
-            Assert.That(keyboard.KeyboardRoot.childCount, Is.EqualTo(13));
+            Assert.That(keyboard.KeyboardRoot.childCount, Is.EqualTo(1));
+            var geometry = keyboard.KeyboardRoot.Find("Keyboard Geometry");
+            Assert.That(geometry, Is.Not.Null);
+            Assert.That(geometry.childCount, Is.EqualTo(13));
             Object.Destroy(runtime);
             Object.Destroy(pianoHost);
             yield return null;

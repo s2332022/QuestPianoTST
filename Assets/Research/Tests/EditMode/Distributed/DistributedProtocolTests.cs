@@ -24,8 +24,54 @@ namespace QuestPianoMotion.Research.Tests
         {
             var d=new byte[128];var m=new MidiMessage(1,1,"d",MidiEventType.NoteOn,1,60,1,-1,-1);var n=NetworkProtocolV1.WriteMidi(d,1,1,Guid.Empty,in m,0);var copy=(byte[])d.Clone();copy[0]=0;Assert.That(NetworkProtocolV1.TryReadHeader(copy,n,out _),Is.False);copy=(byte[])d.Clone();copy[5]=2;Assert.That(NetworkProtocolV1.TryReadHeader(copy,n,out _),Is.False);Assert.That(NetworkProtocolV1.TryReadHeader(d,n-1,out _),Is.False);
         }
+        [Test] public void MalformedPoseLengthChunksAndNonFiniteValuesAreRejected()
+        {
+            Assert.DoesNotThrow(() => Assert.That(NetworkProtocolV1.TryReadHeader(new byte[1],NetworkProtocolV1.HeaderSize,out _),Is.False));
+            var data=new byte[NetworkProtocolV1.MaximumDatagramBytes];
+            var joints=new List<PoseJointSample>();
+            var n=NetworkProtocolV1.WritePose(data,1,1d,Guid.Empty,1,1,1,0,true,true,false,0,1,Pose.identity,Pose.identity,Pose.identity,joints,0,0);
+            WriteU16BigEndian(data,61,0);
+            Assert.That(NetworkProtocolV1.TryReadPose(data,n,out _),Is.False);
+            n=NetworkProtocolV1.WritePose(data,1,1d,Guid.Empty,1,1,1,0,true,true,false,0,1,Pose.identity,Pose.identity,Pose.identity,joints,0,0);
+            WriteU64BigEndian(data,12,0x7ff8000000000000UL);
+            Assert.That(NetworkProtocolV1.TryReadPose(data,n,out _),Is.False);
+            n=NetworkProtocolV1.WritePose(data,1,1d,Guid.Empty,1,1,1,0,true,true,false,0,1,Pose.identity,Pose.identity,Pose.identity,joints,0,0);
+            WriteU32BigEndian(data,63,0x7fc00000U);
+            Assert.That(NetworkProtocolV1.TryReadPose(data,n,out _),Is.False);
+        }
+        [Test] public void InvalidClockValuesAndNegativeRttAreRejected()
+        {
+            var data=new byte[128];
+            var n=NetworkProtocolV1.WriteClockResponse(data,1,1d,Guid.Empty,2d,3d,4d);
+            WriteU64BigEndian(data,NetworkProtocolV1.HeaderSize,0x7ff8000000000000UL);
+            Assert.That(NetworkProtocolV1.TryReadClockResponse(data,n,out _),Is.False);
+            n=NetworkProtocolV1.WriteHeartbeat(data,1,1d,Guid.Empty,0,0,0d,-1d);
+            Assert.That(NetworkProtocolV1.TryReadHeartbeat(data,n,out _),Is.False);
+            var synchronizer=new ClockSynchronizer();
+            Assert.That(synchronizer.TryAdd(2d,3d,2.5d,2.4d,out _),Is.False);
+            Assert.That(synchronizer.TryAdd(2d,3d,3.1d,double.NaN,out _),Is.False);
+            Assert.That(synchronizer.SampleCount,Is.EqualTo(0));
+        }
         [Test] public void SequenceTracker_DetectsLossDuplicateAndOutOfOrder(){var t=new SequenceTracker();t.Observe(10);var gap=t.Observe(13);var dup=t.Observe(13);var old=t.Observe(12);Assert.That(gap.Missing,Is.EqualTo(2));Assert.That(dup.Duplicate,Is.True);Assert.That(old.OutOfOrder,Is.True);Assert.That(t.Missing,Is.EqualTo(2));}
         [Test] public void ClockMath_ComputesRttOffsetAndSelectsMinimumRtt(){var c=new ClockSynchronizer();var first=c.Add(10,11,11.1,10.5);Assert.That(first.Rtt,Is.EqualTo(.4).Within(1e-9));Assert.That(first.Offset,Is.EqualTo(.8).Within(1e-9));var second=c.Add(20,20.6,20.65,20.2);Assert.That(second.Rtt,Is.EqualTo(.15).Within(1e-9));Assert.That(c.Selected.Index,Is.EqualTo(1));}
+        [Test] public void ClockSynchronizer_ResetDropsPreviousConnectionEstimate(){var c=new ClockSynchronizer();c.Add(10,11,11.1,10.5);c.Reset();Assert.That(c.SampleCount,Is.EqualTo(0));Assert.That(c.HasEstimate,Is.False);Assert.That(c.OffsetSeconds,Is.EqualTo(0d));}
+        [Test] public void PoseFrameAssembler_ResetDropsIncompletePreviousConnectionFrame(){var a=new PoseFrameAssembler();var first=new PosePacket{CallbackIndex=7,ChunkIndex=0,ChunkCount=2,Header=new PacketHeader(PacketType.Pose,1,1d,Guid.Empty,0)};Assert.That(a.Accept(first,1d,out var ignored),Is.False);a.Reset();var second=new PosePacket{CallbackIndex=1,ChunkIndex=0,ChunkCount=1,Header=new PacketHeader(PacketType.Pose,2,2d,Guid.Empty,0)};Assert.That(a.Accept(second,2d,out var complete),Is.True);Assert.That(complete.Count,Is.EqualTo(1));}
         [Test] public void SessionStateTransitionsRequireAcknowledgement(){var s=new SessionStateMachine();Assert.That(s.RequestStart(),Is.True);Assert.That(s.State,Is.EqualTo(DistributedSessionState.Starting));Assert.That(s.AcknowledgeStart(true),Is.True);Assert.That(s.RequestStop(),Is.True);Assert.That(s.CompleteStop(),Is.True);Assert.That(s.State,Is.EqualTo(DistributedSessionState.Completed));}
+
+        static void WriteU16BigEndian(byte[] data,int offset,ushort value)
+        {
+            data[offset]=(byte)(value>>8); data[offset+1]=(byte)value;
+        }
+
+        static void WriteU32BigEndian(byte[] data,int offset,uint value)
+        {
+            data[offset]=(byte)(value>>24); data[offset+1]=(byte)(value>>16);
+            data[offset+2]=(byte)(value>>8); data[offset+3]=(byte)value;
+        }
+
+        static void WriteU64BigEndian(byte[] data,int offset,ulong value)
+        {
+            for(var i=0;i<8;++i) data[offset+i]=(byte)(value>>((7-i)*8));
+        }
     }
 }

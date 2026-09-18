@@ -43,7 +43,7 @@ namespace QuestPianoMotion.Research.Distributed
             if (m_Calibration != null && m_Keyboard != null)
             {
                 m_Calibration.CalibrationChanged += m_Keyboard.ApplyCalibration;
-                if (m_Calibration.Current.valid)
+                if (m_Calibration.Current != null && m_Calibration.Current.valid)
                     m_Keyboard.ApplyCalibration(m_Calibration.Current);
                 else
                     StartCoroutine(PlaceDefaultKeyboardWhenHeadReady());
@@ -57,7 +57,7 @@ namespace QuestPianoMotion.Research.Distributed
                 yield return null;
 
             if (m_Calibration == null || m_Keyboard == null || m_Keyboard.KeyboardRoot == null ||
-                m_Calibration.Current.valid)
+                (m_Calibration.Current != null && m_Calibration.Current.valid))
                 yield break;
 
             var xrOrigin = FindAnyObjectByType<XROrigin>();

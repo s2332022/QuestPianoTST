@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace QuestPianoMotion.Research.Distributed
@@ -6,6 +7,7 @@ namespace QuestPianoMotion.Research.Distributed
     {
         PosePacket[] m_Chunks; bool[] m_Received; long m_Callback=long.MinValue; int m_Count; double m_FirstReceive;
         public long IncompleteFramesDropped{get;private set;}
+        public void Reset(){if(m_Chunks!=null&&m_Count<m_Chunks.Length)++IncompleteFramesDropped;m_Chunks=null;m_Received=null;m_Callback=long.MinValue;m_Count=0;m_FirstReceive=0d;}
         public bool Accept(PosePacket packet,double receiveTime,out IReadOnlyList<PosePacket> complete)
         {
             complete=null;if(packet.ChunkCount==0||packet.ChunkIndex>=packet.ChunkCount)return false;

@@ -103,7 +103,7 @@ namespace QuestPianoMotion.Research.Tests
         [UnityTest]
         public IEnumerator XrUiModule_HoverSelectHoldAndRelease_ClicksExactlyOnce()
         {
-            var button = m_Ui.GetComponentsInChildren<UnityEngine.UI.Button>(true)[0];
+            var button = m_Ui.transform.Find("CONNECT").GetComponent<UnityEngine.UI.Button>();
             var counter = button.gameObject.AddComponent<UiEventCounter>();
             var start = m_Camera.transform.position;
             var end = ((RectTransform)button.transform).TransformPoint(((RectTransform)button.transform).rect.center);
@@ -134,7 +134,7 @@ namespace QuestPianoMotion.Research.Tests
         [UnityTest]
         public IEnumerator TrackingLossDuringSelect_ReleasesWithoutClick()
         {
-            var button = m_Ui.GetComponentsInChildren<UnityEngine.UI.Button>(true)[0];
+            var button = m_Ui.transform.Find("CONNECT").GetComponent<UnityEngine.UI.Button>();
             var counter = button.gameObject.AddComponent<UiEventCounter>();
             var start = m_Camera.transform.position;
             var end = ((RectTransform)button.transform).TransformPoint(((RectTransform)button.transform).rect.center);

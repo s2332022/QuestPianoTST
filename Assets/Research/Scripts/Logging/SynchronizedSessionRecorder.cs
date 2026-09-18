@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading;
+using QuestPianoMotion.Research.Distributed;
 using UnityEngine;
 
 namespace QuestPianoMotion.Research
@@ -24,6 +25,13 @@ namespace QuestPianoMotion.Research
         public string hand_tracking_mode;
         public string calibration_id;
         public double recording_duration_sec;
+        public int protocol_version;
+        public string application_version;
+        public string build_guid;
+        public string build_timestamp_utc;
+        public string build_identifier;
+        public string scene;
+        public string execution_mode;
         public string git_commit;
         public string log_format_version;
         public long dropped_log_batches;
@@ -274,7 +282,14 @@ namespace QuestPianoMotion.Research
                     hand_tracking_mode = "OpenXR XR Hands",
                     calibration_id = m_Calibration?.Current?.calibrationId ?? string.Empty,
                     recording_duration_sec = duration,
-                    git_commit = "unavailable (project has no .git directory)",
+                    protocol_version = 1,
+                    application_version = Application.version,
+                    build_guid = Application.buildGUID,
+                    build_timestamp_utc = DistributedBuildInfo.TimestampUtc,
+                    build_identifier = DistributedBuildInfo.Identifier,
+                    scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().path,
+                    execution_mode = "StandaloneQuest",
+                    git_commit = "not recorded at build time",
                     log_format_version = "1.0.0",
                     dropped_log_batches = m_DroppedBatches
                 };
