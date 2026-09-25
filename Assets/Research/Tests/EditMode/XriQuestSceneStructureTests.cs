@@ -1,5 +1,6 @@
 using System.Linq;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -16,6 +17,39 @@ namespace QuestPianoMotion.Research.Tests
     public sealed class XriQuestSceneStructureTests
     {
         [Test]
+        [TestCase("Assets/Research/Scenes/PianoDistributedQuest.unity")]
+        [TestCase("Assets/Research/Scenes/PianoDistributedHost.unity")]
+        public void DistributedScene_HasNoMissingScriptsOrReferences(string scenePath)
+        {
+            var scene = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Additive);
+            try
+            {
+                foreach (var root in scene.GetRootGameObjects())
+                foreach (var transform in root.GetComponentsInChildren<Transform>(true))
+                {
+                    Assert.That(GameObjectUtility.GetMonoBehavioursWithMissingScriptCount(transform.gameObject),
+                        Is.Zero, "Missing script on " + scenePath + " / " + transform.name);
+                    foreach (var component in transform.GetComponents<Component>())
+                    {
+                        if (component == null) continue;
+                        var iterator = new SerializedObject(component).GetIterator();
+                        while (iterator.NextVisible(true))
+                        {
+                            var hasMissingReference = iterator.propertyType == SerializedPropertyType.ObjectReference &&
+                                iterator.objectReferenceValue == null &&
+                                !iterator.objectReferenceEntityIdValue.Equals(default(UnityEngine.EntityId));
+                            Assert.That(hasMissingReference, Is.False,
+                                "Missing reference on " + scenePath + " / " + transform.name + "/" +
+                                component.GetType().Name + "." + iterator.propertyPath);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                EditorSceneManager.CloseScene(scene, true);
+            }
+        }
         public void QuestScene_ContainsOneStandardRightHandUiPathAndDisabledLegacyPath()
         {
             var scene = EditorSceneManager.OpenScene("Assets/Research/Scenes/PianoDistributedQuest.unity", OpenSceneMode.Additive);

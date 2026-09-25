@@ -4,6 +4,8 @@ using System.Reflection;
 using System.Text;
 using Unity.XR.CoreUtils;
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
 using UnityEngine.XR.Management;
@@ -384,6 +386,104 @@ namespace QuestPianoMotion.Research.Distributed
             return result;
         }
 
+        static int GetPrivateInt(object target, string fieldName, int fallback)
+        {
+            if (target == null) return fallback;
+            for (var type = target.GetType(); type != null; type = type.BaseType)
+            {
+                var field = type.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                if (field == null || field.FieldType != typeof(int)) continue;
+                try { return (int)field.GetValue(target); }
+                catch (System.Exception) { return fallback; }
+            }
+            return fallback;
+        }
+
+        static void AppendRenderPipelineDiagnostics(StringBuilder log, Camera camera)
+        {
+            var pipelineAsset = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
+            var cameraData = camera != null ? camera.GetComponent<UniversalAdditionalCameraData>() : null;
+            var defaultRendererIndex = GetPrivateInt(pipelineAsset, "m_DefaultRendererIndex", 0);
+            var configuredRendererIndex = GetPrivateInt(cameraData, "m_RendererIndex", -1);
+            var rendererIndex = configuredRendererIndex < 0 ? defaultRendererIndex : configuredRendererIndex;
+            ScriptableRendererData rendererAsset = null;
+            if (pipelineAsset != null)
+            {
+                var rendererListField = typeof(UniversalRenderPipelineAsset).GetField(
+                    "m_RendererDataList", BindingFlags.Instance | BindingFlags.NonPublic);
+                try
+                {
+                    var rendererAssets = rendererListField != null
+                        ? rendererListField.GetValue(pipelineAsset) as ScriptableRendererData[] : null;
+                    if (rendererAssets != null && rendererIndex >= 0 && rendererIndex < rendererAssets.Length)
+                        rendererAsset = rendererAssets[rendererIndex];
+                }
+                catch (System.Exception) { }
+            }
+
+            var cameraStackCount = 0;
+            var cameraPostProcessing = false;
+            var renderType = "Base (default; no UniversalAdditionalCameraData)";
+            if (cameraData != null)
+            {
+                renderType = cameraData.renderType.ToString();
+                cameraPostProcessing = cameraData.renderPostProcessing;
+                try { cameraStackCount = cameraData.cameraStack != null ? cameraData.cameraStack.Count : 0; }
+                catch (System.Exception) { cameraStackCount = -1; }
+            }
+
+            var intermediateTexture = "unavailable";
+            var rendererFeatures = "unavailable";
+            if (rendererAsset != null)
+            {
+                try
+                {
+                    var intermediateProperty = rendererAsset.GetType().GetProperty("intermediateTextureMode");
+                    if (intermediateProperty != null)
+                        intermediateTexture = intermediateProperty.GetValue(rendererAsset)?.ToString() ?? "unavailable";
+                    var featuresProperty = rendererAsset.GetType().GetProperty("rendererFeatures");
+                    var featureList = featuresProperty != null
+                        ? featuresProperty.GetValue(rendererAsset) as System.Collections.IList : null;
+                    if (featureList != null)
+                    {
+                        if (featureList.Count == 0) rendererFeatures = "none";
+                        else
+                        {
+                            var featureNames = new StringBuilder();
+                            for (var i = 0; i < featureList.Count; ++i)
+                            {
+                                if (i > 0) featureNames.Append(',');
+                                var feature = featureList[i] as UnityEngine.Object;
+                                featureNames.Append(feature != null ? feature.name : "null");
+                            }
+                            rendererFeatures = featureNames.ToString();
+                        }
+                    }
+                }
+                catch (System.Exception) { }
+            }
+
+            var target = camera != null ? camera.targetTexture : null;
+            log.Append("Camera HDR allowed: ").AppendLine(camera != null ? camera.allowHDR.ToString() : "unavailable");
+            log.Append("Camera target texture: ").AppendLine(target != null
+                ? target.name + " (" + target.width + "x" + target.height + ")" : "none");
+            log.Append("Universal Additional Camera Data: ").AppendLine(cameraData != null ? "present" : "absent (URP defaults)");
+            log.Append("Camera Render Type: ").AppendLine(renderType);
+            log.Append("Camera Renderer Index: ").Append(rendererIndex)
+                .Append(" (configured=").Append(configuredRendererIndex).AppendLine(")");
+            log.Append("Camera Stack count: ").AppendLine(cameraStackCount.ToString());
+            log.Append("Camera Post Processing: ").AppendLine(cameraPostProcessing.ToString());
+            log.Append("Active URP Asset: ").AppendLine(pipelineAsset != null ? pipelineAsset.name : "none (Built-in)");
+            log.Append("URP HDR support: ").AppendLine(pipelineAsset != null ? pipelineAsset.supportsHDR.ToString() : "unavailable");
+            log.Append("URP Opaque Texture: ").AppendLine(pipelineAsset != null ? pipelineAsset.supportsCameraOpaqueTexture.ToString() : "unavailable");
+            log.Append("URP Depth Texture: ").AppendLine(pipelineAsset != null ? pipelineAsset.supportsCameraDepthTexture.ToString() : "unavailable");
+            log.Append("URP Post Process Alpha Output: ").AppendLine(pipelineAsset != null ? pipelineAsset.allowPostProcessAlphaOutput.ToString() : "unavailable");
+            log.Append("Active Renderer Asset: ").AppendLine(rendererAsset != null ? rendererAsset.name : "unavailable");
+            log.Append("Renderer Intermediate Texture: ").AppendLine(intermediateTexture);
+            log.Append("Renderer Features: ").AppendLine(rendererFeatures);
+            log.Append("Graphics API: ").AppendLine(SystemInfo.graphicsDeviceType.ToString());
+            log.Append("Color Space: ").AppendLine(QualitySettings.activeColorSpace.ToString());
+        }
         void LogPassthroughState(string heading, Color cameraColorBefore, string failureReason)
         {
             var camera = m_PassthroughCamera;
@@ -434,6 +534,7 @@ namespace QuestPianoMotion.Research.Distributed
             log.Append("Camera alpha before: ").AppendLine(cameraColorBefore.a.ToString("F3"));
             log.Append("Camera alpha after: ").AppendLine(cameraColorAfter.a.ToString("F3"));
             log.Append("Camera alpha saved for restore: ").AppendLine(savedCameraColor.a.ToString("F3"));
+            AppendRenderPipelineDiagnostics(log, camera);
             log.Append("Camera RGB before/after: ").Append(cameraColorBefore.r.ToString("F3")).Append(',')
                 .Append(cameraColorBefore.g.ToString("F3")).Append(',').Append(cameraColorBefore.b.ToString("F3"))
                 .Append('/').Append(cameraColorAfter.r.ToString("F3")).Append(',')

@@ -11,7 +11,8 @@
     "Unity.UGUI",
     "Unity.XR.ARFoundation",
     "Unity.XR.ARSubsystems",
-    "Unity.XR.OpenXR"
+    "Unity.XR.OpenXR",
+    "Unity.RenderPipelines.Universal.Runtime"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],

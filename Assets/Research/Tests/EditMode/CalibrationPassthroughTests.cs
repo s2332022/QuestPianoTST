@@ -1,5 +1,6 @@
 using System.Reflection;
 using NUnit.Framework;
+using UnityEditor;
 using QuestPianoMotion.Research.Distributed;
 using UnityEngine;
 
@@ -101,6 +102,23 @@ namespace QuestPianoMotion.Research.Tests
             }
         }
 
+        [Test]
+        public void QuestMobileUrp_DisablesHdrAndKeepsAutoIntermediateTexture()
+        {
+            var pipelineAsset = AssetDatabase.LoadMainAssetAtPath("Assets/Settings/Mobile_RPAsset.asset");
+            Assert.That(pipelineAsset, Is.Not.Null);
+            var pipelineProperties = new SerializedObject(pipelineAsset);
+            Assert.That(pipelineProperties.FindProperty("m_SupportsHDR").boolValue, Is.False);
+
+            var renderers = pipelineProperties.FindProperty("m_RendererDataList");
+            Assert.That(renderers, Is.Not.Null);
+            Assert.That(renderers.arraySize, Is.GreaterThan(0));
+            var rendererAsset = renderers.GetArrayElementAtIndex(0).objectReferenceValue;
+            Assert.That(rendererAsset, Is.Not.Null);
+            var rendererProperties = new SerializedObject(rendererAsset);
+            Assert.That(rendererProperties.FindProperty("m_IntermediateTextureMode").intValue, Is.Zero);
+            Assert.That(rendererProperties.FindProperty("m_RendererFeatures").arraySize, Is.Zero);
+        }
         [TestCase(false, false, "Camera subsystem was not created", 0)]
         [TestCase(true, false, "Camera subsystem failed to start", 0)]
         [TestCase(true, true, "Passthrough Composition Layer was not created", 0)]
