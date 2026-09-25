@@ -25,6 +25,8 @@ namespace QuestPianoMotion.Research.Distributed
         MinimalHandVisualizer m_Visualizer;
         VirtualPianoKeyboard m_Keyboard;
         TMP_Text m_KeyboardModeLabel;
+        TMP_Text m_CaptureAButtonLabel;
+        TMP_Text m_CancelCaptureButtonLabel;
         Canvas m_Canvas;
         TMP_Text m_Status;
         TMP_Text m_CalibrationStatus;
@@ -91,6 +93,7 @@ namespace QuestPianoMotion.Research.Distributed
                     m_LastCalibrationMessage = message;
                     m_LastCaptureHand = hand;
                     m_CalibrationStatus.text = $"Capture Hand: {hand.ToUpperInvariant()}\n{message}";
+                    UpdatePassthroughFailureActions();
                 }
             }
             if (Time.unscaledTime < m_NextUpdate || m_Client == null || m_Status == null)
@@ -214,11 +217,18 @@ namespace QuestPianoMotion.Research.Distributed
                 m_Client.StartNetwork();
             });
             CreateButton("DISCONNECT", new Vector2(540, -470), 130, () => m_Client?.StopNetwork());
-            CreateButton("CALIBRATION A", new Vector2(20, -540), 140, () => m_Calibration?.CaptureA());
+            m_CaptureAButtonLabel = CreateButton("CALIBRATION A", new Vector2(20, -540), 140, () =>
+            {
+                if (m_Calibration != null && m_Calibration.PassthroughRetryAvailable)
+                    m_Calibration.RetryPassthroughCapture();
+                else
+                    m_Calibration?.CaptureA();
+            });
             CreateButton("CALIBRATION B", new Vector2(180, -540), 140, () => m_Calibration?.CaptureB());
             CreateButton("CALIBRATION C", new Vector2(340, -540), 140, () => m_Calibration?.CaptureC());
             CreateButton("SAVE CALIBRATION", new Vector2(500, -540), 170, () => m_Calibration?.SaveCalibration());
-            CreateButton("CANCEL CAPTURE", new Vector2(560, -610), 140, () => m_Calibration?.CancelCapture());
+            m_CancelCaptureButtonLabel = CreateButton("CANCEL CAPTURE", new Vector2(560, -610), 140,
+                () => m_Calibration?.CancelCalibration());
             CreateButton("RECENTER UI", new Vector2(20, -610), 150, RecenterUi);
             CreateButton("HAND GAMEOBJECTS", new Vector2(190, -610), 190,
                 () => m_Visualizer?.UseGameObjectsDiagnostic());
@@ -227,6 +237,7 @@ namespace QuestPianoMotion.Research.Distributed
             m_KeyboardModeLabel = CreateButton("KEYBOARD: 88 KEYS", new Vector2(560, -610), 160,
                 ToggleKeyboardMode);
             UpdateKeyboardModeLabel();
+            UpdatePassthroughFailureActions();
 
             m_HandInputDiagnostic = CreateText("Hand Input Diagnostic", transform,
                 "Pointer: NONE\nHand: RIGHT\nPinch: OPEN\nDistance: 0.0 mm\nTarget: NONE\nClicks: 0",
@@ -242,6 +253,15 @@ namespace QuestPianoMotion.Research.Distributed
 
             if (m_EnableLegacyTextFallback)
                 CreateLegacyFallback();
+        }
+
+        void UpdatePassthroughFailureActions()
+        {
+            var retryAvailable = m_Calibration != null && m_Calibration.PassthroughRetryAvailable;
+            if (m_CaptureAButtonLabel != null)
+                m_CaptureAButtonLabel.text = retryAvailable ? "RETRY PASSTHROUGH" : "CALIBRATION A";
+            if (m_CancelCaptureButtonLabel != null)
+                m_CancelCaptureButtonLabel.text = retryAvailable ? "CANCEL CALIBRATION" : "CANCEL CAPTURE";
         }
 
         public void ConfigureInputMode(UiInputMode mode)

@@ -9,7 +9,9 @@
     "Unity.InputSystem",
     "Unity.TextMeshPro",
     "Unity.UGUI",
-    "Unity.XR.ARFoundation"
+    "Unity.XR.ARFoundation",
+    "Unity.XR.ARSubsystems",
+    "Unity.XR.OpenXR"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],

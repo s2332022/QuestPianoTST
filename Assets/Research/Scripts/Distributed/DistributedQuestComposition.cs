@@ -1,7 +1,13 @@
 using System.Collections;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Text;
 using Unity.XR.CoreUtils;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
+using UnityEngine.XR.ARSubsystems;
+using UnityEngine.XR.Management;
+using UnityEngine.XR.OpenXR;
 
 namespace QuestPianoMotion.Research.Distributed
 {
@@ -9,8 +15,17 @@ namespace QuestPianoMotion.Research.Distributed
     {
         readonly Behaviour m_Passthrough;
         readonly VirtualPianoKeyboard m_Keyboard;
+        Camera m_Camera;
         bool m_WasEnabled;
+        CameraClearFlags m_PreviousClearFlags;
+        Color m_PreviousBackgroundColor;
         public bool Active { get; private set; }
+        public bool Ready { get; private set; }
+        public Camera TargetCamera => m_Camera;
+        public Behaviour PassthroughManager => m_Passthrough;
+        public CameraClearFlags PreviousClearFlags => m_PreviousClearFlags;
+        public Color PreviousBackgroundColor => m_PreviousBackgroundColor;
+        public bool PreviousManagerEnabled => m_WasEnabled;
 
         public CalibrationPassthroughSession(Behaviour passthrough, VirtualPianoKeyboard keyboard)
         {
@@ -18,12 +33,49 @@ namespace QuestPianoMotion.Research.Distributed
             m_Keyboard = keyboard;
         }
 
-        public void Begin()
+        public bool Begin(Camera camera, out string failureReason)
         {
-            if (Active || m_Passthrough == null) return;
+            failureReason = null;
+            if (Active) return true;
+            if (camera == null)
+            {
+                failureReason = "Main Camera is unavailable";
+                return false;
+            }
+            if (m_Passthrough == null)
+            {
+                failureReason = "ARCameraManager is missing from Main Camera";
+                return false;
+            }
+
+            m_Camera = camera;
             m_WasEnabled = m_Passthrough.enabled;
+            m_PreviousClearFlags = camera.clearFlags;
+            m_PreviousBackgroundColor = camera.backgroundColor;
             Active = true;
-            m_Passthrough.enabled = true;
+            Ready = false;
+
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            var color = m_PreviousBackgroundColor;
+            color.a = 0f;
+            camera.backgroundColor = color;
+            try
+            {
+                m_Passthrough.enabled = true;
+            }
+            catch (System.Exception exception)
+            {
+                failureReason = "ARCameraManager could not be enabled: " + exception.GetType().Name + ": " + exception.Message;
+                End();
+                return false;
+            }
+            return true;
+        }
+
+        public void MarkReady()
+        {
+            if (!Active || Ready) return;
+            Ready = true;
             m_Keyboard?.SetCalibrationTransparency(true);
         }
 
@@ -32,7 +84,33 @@ namespace QuestPianoMotion.Research.Distributed
             if (!Active) return;
             m_Keyboard?.SetCalibrationTransparency(false);
             if (m_Passthrough != null) m_Passthrough.enabled = m_WasEnabled;
+            if (m_Camera != null)
+            {
+                m_Camera.clearFlags = m_PreviousClearFlags;
+                m_Camera.backgroundColor = m_PreviousBackgroundColor;
+            }
             Active = false;
+            Ready = false;
+        }
+    }
+
+    public static class CalibrationPassthroughReadiness
+    {
+        public static string GetFailureReason(bool xrInitialized, bool cameraManagerPresent,
+            bool subsystemPresent, bool subsystemRunning, int passthroughLayerCount,
+            bool passthroughLayerEnabled, int passthroughLayerOrder, string blendType)
+        {
+            if (!cameraManagerPresent) return "ARCameraManager is missing from Main Camera";
+            if (!xrInitialized) return "OpenXR loader failed to initialize";
+            if (!subsystemPresent) return "Camera subsystem was not created";
+            if (!subsystemRunning) return "Camera subsystem failed to start";
+            if (passthroughLayerCount == 0) return "Passthrough Composition Layer was not created";
+            if (passthroughLayerCount > 1) return "Multiple Passthrough Composition Layers were found";
+            if (!passthroughLayerEnabled) return "Passthrough Composition Layer is disabled";
+            if (passthroughLayerOrder >= 0) return "Passthrough Composition Layer is not an underlay";
+            if (!string.Equals(blendType, "Alpha", System.StringComparison.Ordinal))
+                return "Passthrough Composition Layer blend type is not Alpha";
+            return null;
         }
     }
 
@@ -46,6 +124,22 @@ namespace QuestPianoMotion.Research.Distributed
         MinimalHandVisualizer m_Visualizer;
         QuestHmdPoseGate m_PlacementGate;
         CalibrationPassthroughSession m_PassthroughSession;
+        Camera m_PassthroughCamera;
+        ARCameraManager m_PassthroughCameraManager;
+        Coroutine m_PassthroughStartup;
+        string m_LastCameraSubsystemLookupError;
+        const float PassthroughStartTimeoutSeconds = 2f;
+        const string CompositionLayerTypeName = "Unity.XR.CompositionLayers.CompositionLayer";
+        const string PassthroughLayerDataTypeName = "UnityEngine.XR.OpenXR.Features.Meta.PassthroughLayerData";
+
+        sealed class PassthroughLayerSnapshot
+        {
+            public int GameObjectCount;
+            public int LayerCount;
+            public bool Enabled;
+            public int Order;
+            public string BlendType = "unavailable";
+        }
 
         public bool DefaultKeyboardPlaced { get; private set; }
 
@@ -63,7 +157,9 @@ namespace QuestPianoMotion.Research.Distributed
             m_PlacementGate = new QuestHmdPoseGate(Time.realtimeSinceStartupAsDouble);
             var mainCamera = Camera.main;
             var cameraManager = mainCamera != null ? mainCamera.GetComponent<ARCameraManager>() : null;
-            m_PassthroughSession = new CalibrationPassthroughSession(cameraManager, m_Keyboard);
+            m_PassthroughCamera = mainCamera;
+            m_PassthroughCameraManager = cameraManager;
+            m_PassthroughSession = new CalibrationPassthroughSession(m_PassthroughCameraManager, m_Keyboard);
 
             var piano = GameObject.Find("Piano Root");
             if (m_Keyboard != null && piano != null)
@@ -79,8 +175,8 @@ namespace QuestPianoMotion.Research.Distributed
             if (m_Calibration != null && m_Keyboard != null)
             {
                 m_Calibration.CalibrationChanged += m_Keyboard.ApplyCalibration;
-                m_Calibration.CaptureSessionStarted += m_PassthroughSession.Begin;
-                m_Calibration.CaptureSessionEnded += m_PassthroughSession.End;
+                m_Calibration.CaptureSessionStarted += OnCaptureSessionStarted;
+                m_Calibration.CaptureSessionEnded += OnCaptureSessionEnded;
                 if (m_Calibration.Current != null && m_Calibration.Current.valid)
                     m_Keyboard.ApplyCalibration(m_Calibration.Current);
                 else
@@ -109,18 +205,257 @@ namespace QuestPianoMotion.Research.Distributed
             if (m_Calibration != null && m_Keyboard != null)
             {
                 m_Calibration.CalibrationChanged -= m_Keyboard.ApplyCalibration;
-                m_Calibration.CaptureSessionStarted -= m_PassthroughSession.Begin;
-                m_Calibration.CaptureSessionEnded -= m_PassthroughSession.End;
+                m_Calibration.CaptureSessionStarted -= OnCaptureSessionStarted;
+                m_Calibration.CaptureSessionEnded -= OnCaptureSessionEnded;
             }
-            m_PassthroughSession?.End();
+            EndPassthroughSession("Scene destroyed");
         }
 
         void OnDisable()
         {
             m_Calibration?.CancelCapture();
-            m_PassthroughSession?.End();
+            EndPassthroughSession("Composition disabled");
         }
 
-        void OnApplicationQuit() => m_PassthroughSession?.End();
+        void OnApplicationQuit() => EndPassthroughSession("Application quitting");
+
+        void OnCaptureSessionStarted()
+        {
+            if (m_PassthroughStartup != null)
+                StopCoroutine(m_PassthroughStartup);
+            m_PassthroughStartup = StartCoroutine(EnablePassthroughForCalibration());
+        }
+
+        void OnCaptureSessionEnded() => EndPassthroughSession("Capture session ended");
+
+        IEnumerator EnablePassthroughForCalibration()
+        {
+            m_PassthroughCamera = Camera.main;
+            m_PassthroughCameraManager = m_PassthroughCamera != null
+                ? m_PassthroughCamera.GetComponent<ARCameraManager>() : null;
+            m_PassthroughSession = new CalibrationPassthroughSession(m_PassthroughCameraManager, m_Keyboard);
+
+            var cameraColorBefore = m_PassthroughCamera != null ? m_PassthroughCamera.backgroundColor : default;
+            string failureReason;
+            var requested = m_PassthroughSession.Begin(m_PassthroughCamera, out failureReason);
+            if (!requested)
+            {
+                LogPassthroughState("Passthrough enable requested", cameraColorBefore, failureReason);
+                if (m_Calibration != null)
+                {
+                    var userMessage = failureReason != null && failureReason.Contains("Camera subsystem")
+                        ? "Camera subsystem failed to start" : failureReason;
+                    m_Calibration.FailPassthroughStartup(userMessage);
+                }
+                m_PassthroughStartup = null;
+                yield break;
+            }
+
+            LogPassthroughState("Passthrough enable requested", cameraColorBefore, "Waiting for Camera Subsystem and Passthrough Layer");
+            var deadline = Time.realtimeSinceStartupAsDouble + PassthroughStartTimeoutSeconds;
+            PassthroughLayerSnapshot layer = null;
+            var subsystem = GetCameraSubsystem();
+            var xrInitialized = IsOpenXrInitialized();
+            var failure = string.Empty;
+            var nextLayerCheck = 0d;
+            while (Time.realtimeSinceStartupAsDouble < deadline)
+            {
+                subsystem = GetCameraSubsystem();
+                xrInitialized = IsOpenXrInitialized();
+                if (subsystem != null && subsystem.running && Time.realtimeSinceStartupAsDouble >= nextLayerCheck)
+                {
+                    layer = FindPassthroughLayer();
+                    nextLayerCheck = Time.realtimeSinceStartupAsDouble + 0.1d;
+                }
+                failure = CalibrationPassthroughReadiness.GetFailureReason(
+                    xrInitialized,
+                    m_PassthroughCameraManager != null,
+                    subsystem != null,
+                    subsystem != null && subsystem.running,
+                    layer != null ? layer.LayerCount : 0,
+                    layer != null && layer.Enabled,
+                    layer != null ? layer.Order : int.MaxValue,
+                    layer != null ? layer.BlendType : "unavailable");
+                if (failure == null)
+                {
+                    m_PassthroughSession.MarkReady();
+                    LogPassthroughState("Passthrough enabled", cameraColorBefore, "None");
+                    m_PassthroughStartup = null;
+                    yield break;
+                }
+                yield return null;
+            }
+
+            subsystem = GetCameraSubsystem();
+            layer = FindPassthroughLayer();
+            failure = CalibrationPassthroughReadiness.GetFailureReason(
+                IsOpenXrInitialized(),
+                m_PassthroughCameraManager != null,
+                subsystem != null,
+                subsystem != null && subsystem.running,
+                layer != null ? layer.LayerCount : 0,
+                layer != null && layer.Enabled,
+                layer != null ? layer.Order : int.MaxValue,
+                layer != null ? layer.BlendType : "unavailable");
+            if (string.IsNullOrEmpty(failure))
+                failure = "Passthrough startup timed out";
+            LogPassthroughState("Passthrough enable failed", cameraColorBefore, failure);
+            m_PassthroughSession.End();
+            LogPassthroughState("Passthrough state restored after failure", cameraColorBefore, failure);
+            if (m_Calibration != null)
+            {
+                var userMessage = failure.Contains("Camera subsystem")
+                    ? "Camera subsystem failed to start" : failure;
+                m_Calibration.FailPassthroughStartup(userMessage);
+            }
+            m_PassthroughStartup = null;
+        }
+
+        void EndPassthroughSession(string reason)
+        {
+            if (m_PassthroughStartup != null)
+            {
+                StopCoroutine(m_PassthroughStartup);
+                m_PassthroughStartup = null;
+            }
+            if (m_PassthroughSession == null || !m_PassthroughSession.Active)
+                return;
+
+            var cameraColorBefore = m_PassthroughCamera != null ? m_PassthroughCamera.backgroundColor : default;
+            m_PassthroughSession.End();
+            LogPassthroughState("Passthrough session ended", cameraColorBefore, reason);
+        }
+
+        XRCameraSubsystem GetCameraSubsystem()
+        {
+            m_LastCameraSubsystemLookupError = null;
+            try { return m_PassthroughCameraManager != null ? m_PassthroughCameraManager.subsystem : null; }
+            catch (System.Exception exception)
+            {
+                m_LastCameraSubsystemLookupError = exception.GetType().Name + ": " + exception.Message;
+                return null;
+            }
+        }
+
+        static bool IsOpenXrInitialized()
+        {
+            var settings = XRGeneralSettings.Instance;
+            return settings != null && settings.Manager != null && settings.Manager.isInitializationComplete &&
+                   settings.Manager.activeLoader != null;
+        }
+
+        static PassthroughLayerSnapshot FindPassthroughLayer()
+        {
+            var result = new PassthroughLayerSnapshot();
+            var transforms = UnityEngine.Object.FindObjectsByType<Transform>(FindObjectsInactive.Include);
+            foreach (var transform in transforms)
+            {
+                if (transform == null || !transform.gameObject.scene.IsValid() || transform.name != "Passthrough")
+                    continue;
+
+                ++result.GameObjectCount;
+                var components = transform.GetComponents<MonoBehaviour>();
+                foreach (var component in components)
+                {
+                    if (component == null || component.GetType().FullName != CompositionLayerTypeName)
+                        continue;
+                    try
+                    {
+                        var dataProperty = component.GetType().GetProperty("LayerData", BindingFlags.Instance | BindingFlags.Public);
+                        var data = dataProperty != null ? dataProperty.GetValue(component) : null;
+                        if (data == null || data.GetType().FullName != PassthroughLayerDataTypeName)
+                            continue;
+
+                        ++result.LayerCount;
+                        result.Enabled = component.enabled && component.gameObject.activeInHierarchy;
+                        var orderProperty = component.GetType().GetProperty("Order", BindingFlags.Instance | BindingFlags.Public);
+                        if (orderProperty != null)
+                            result.Order = (int)orderProperty.GetValue(component);
+                        var blendProperty = data.GetType().GetProperty("BlendTypeDirectly", BindingFlags.Instance | BindingFlags.Public);
+                        if (blendProperty != null)
+                            result.BlendType = blendProperty.GetValue(data)?.ToString() ?? "unavailable";
+                    }
+                    catch (System.Exception exception)
+                    {
+                        result.BlendType = "inspection error: " + exception.GetType().Name;
+                    }
+                }
+            }
+            return result;
+        }
+
+        void LogPassthroughState(string heading, Color cameraColorBefore, string failureReason)
+        {
+            var camera = m_PassthroughCamera;
+            var cameraManager = m_PassthroughCameraManager;
+            XRCameraSubsystem subsystem = null;
+            try { subsystem = cameraManager != null ? cameraManager.subsystem : null; }
+            catch (System.Exception) { }
+
+            var xrSettings = XRGeneralSettings.Instance;
+            var xrManager = xrSettings != null ? xrSettings.Manager : null;
+            var loader = xrManager != null ? xrManager.activeLoader : null;
+            var descriptors = new List<XRCameraSubsystemDescriptor>();
+            SubsystemManager.GetSubsystemDescriptors(descriptors);
+            var descriptorIds = new StringBuilder();
+            for (var i = 0; i < descriptors.Count; ++i)
+            {
+                if (i > 0) descriptorIds.Append(',');
+                descriptorIds.Append(descriptors[i] != null ? descriptors[i].id : "null");
+            }
+
+            var layer = FindPassthroughLayer();
+            var mainCameraIsRendering = false;
+            if (camera != null && camera.isActiveAndEnabled)
+                mainCameraIsRendering = System.Array.IndexOf(Camera.allCameras, camera) >= 0;
+
+            var extensionEnabled = false;
+            try { extensionEnabled = loader != null && OpenXRRuntime.IsExtensionEnabled("XR_FB_passthrough"); }
+            catch (System.Exception) { }
+
+            var cameraColorAfter = camera != null ? camera.backgroundColor : default;
+            var clearFlagsBefore = m_PassthroughSession != null
+                ? m_PassthroughSession.PreviousClearFlags.ToString() : "unavailable";
+            var savedCameraColor = m_PassthroughSession != null
+                ? m_PassthroughSession.PreviousBackgroundColor : default;
+            var managerEnabledBefore = m_PassthroughSession != null && m_PassthroughSession.PreviousManagerEnabled;
+            var blend = layer != null ? layer.BlendType : "unavailable";
+            var order = layer != null && layer.LayerCount == 1 ? layer.Order.ToString() : "unavailable";
+            var permission = "unavailable";
+            try { if (cameraManager != null) permission = cameraManager.permissionGranted.ToString(); }
+            catch (System.Exception exception) { permission = "error:" + exception.GetType().Name; }
+
+            var log = new StringBuilder(768);
+            log.AppendLine(heading);
+            log.Append("Main Camera: ").Append(camera != null ? camera.gameObject.name : "null")
+                .Append("; rendered: ").AppendLine(mainCameraIsRendering.ToString());
+            log.Append("Camera clearFlags before/after: ").Append(clearFlagsBefore).Append('/')
+                .AppendLine(camera != null ? camera.clearFlags.ToString() : "unavailable");
+            log.Append("Camera alpha before: ").AppendLine(cameraColorBefore.a.ToString("F3"));
+            log.Append("Camera alpha after: ").AppendLine(cameraColorAfter.a.ToString("F3"));
+            log.Append("Camera alpha saved for restore: ").AppendLine(savedCameraColor.a.ToString("F3"));
+            log.Append("Camera RGB before/after: ").Append(cameraColorBefore.r.ToString("F3")).Append(',')
+                .Append(cameraColorBefore.g.ToString("F3")).Append(',').Append(cameraColorBefore.b.ToString("F3"))
+                .Append('/').Append(cameraColorAfter.r.ToString("F3")).Append(',')
+                .Append(cameraColorAfter.g.ToString("F3")).Append(',').AppendLine(cameraColorAfter.b.ToString("F3"));
+            log.Append("ARCameraManager enabled: exists=").Append(cameraManager != null)
+                .Append(" current=").Append(cameraManager != null && cameraManager.enabled)
+                .Append(" saved=").Append(managerEnabledBefore).Append(" permissionGranted=").AppendLine(permission);
+            if (!string.IsNullOrEmpty(m_LastCameraSubsystemLookupError))
+                log.Append("Camera subsystem lookup exception: ").AppendLine(m_LastCameraSubsystemLookupError);
+            log.Append("Camera subsystem: ").Append(subsystem != null && subsystem.subsystemDescriptor != null
+                ? subsystem.subsystemDescriptor.id : "null").Append("; registered descriptor IDs: ").AppendLine(descriptorIds.ToString());
+            log.Append("Camera subsystem running: ").AppendLine(subsystem != null && subsystem.running ? "true" : "false");
+            log.Append("XR General Settings initialized: ").AppendLine(xrManager != null && xrManager.isInitializationComplete ? "true" : "false");
+            log.Append("OpenXR loader: ").Append(loader != null ? loader.GetType().Name : "none")
+                .Append("; active: ").Append(loader != null).Append("; XR_FB_passthrough enabled: ").AppendLine(extensionEnabled.ToString());
+            log.Append("Passthrough runtime objects: ").Append(layer != null ? layer.GameObjectCount : 0)
+                .Append("; Composition Layer count: ").AppendLine(layer != null ? layer.LayerCount.ToString() : "0");
+            log.Append("Composition Layer enabled: ").AppendLine(layer != null && layer.Enabled ? "true" : "false");
+            log.Append("Composition Layer Layer Order: ").AppendLine(order);
+            log.Append("Composition Layer Blend Type: ").AppendLine(blend);
+            log.Append("Failure reason: ").Append(string.IsNullOrEmpty(failureReason) ? "None" : failureReason);
+            Debug.Log(log.ToString(), this);
+        }
     }
 }

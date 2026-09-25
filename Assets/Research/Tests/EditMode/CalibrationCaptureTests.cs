@@ -106,6 +106,48 @@ namespace QuestPianoMotion.Research.Tests
             Assert.That(m_Manager.CapturedPointCount, Is.EqualTo(1));
         }
 
+        [Test]
+        public void PassthroughStartupFailure_PreservesCalibrationAndOffersSamePointRetry()
+        {
+            CompleteA();
+            CompleteB();
+            CompleteC();
+            var lastValid = m_Manager.LastValidCalibration;
+            m_Manager.CaptureA();
+            m_Manager.FailPassthroughStartup("Camera subsystem failed to start");
+
+            Assert.That(m_Manager.State, Is.EqualTo(PianoCalibrationManager.CaptureState.Idle));
+            Assert.That(m_Manager.CapturedPointCount, Is.EqualTo(3));
+            Assert.That(m_Manager.LastValidCalibration, Is.SameAs(lastValid));
+            Assert.That(m_Manager.Current, Is.SameAs(lastValid));
+            Assert.That(m_Manager.PassthroughRetryAvailable, Is.True);
+            Assert.That(m_Manager.StatusText, Does.Contain("Passthrough unavailable"));
+            Assert.That(m_Manager.StatusText, Does.Contain("Camera subsystem failed to start"));
+
+            m_Manager.RetryPassthroughCapture();
+            Assert.That(m_Manager.State, Is.EqualTo(PianoCalibrationManager.CaptureState.ArmedA));
+            Assert.That(m_Manager.PassthroughRetryAvailable, Is.False);
+            Assert.That(m_Manager.LastValidCalibration, Is.SameAs(lastValid));
+        }
+
+        [Test]
+        public void CancelCalibrationAfterPassthroughFailure_PreservesPointsAndLastValidCalibration()
+        {
+            CompleteA();
+            CompleteB();
+            CompleteC();
+            var lastValid = m_Manager.LastValidCalibration;
+            m_Manager.CaptureA();
+            m_Manager.FailPassthroughStartup("Camera subsystem failed to start");
+            m_Manager.CancelCalibration();
+
+            Assert.That(m_Manager.PassthroughRetryAvailable, Is.False);
+            Assert.That(m_Manager.CapturedPointCount, Is.EqualTo(3));
+            Assert.That(m_Manager.LastValidCalibration, Is.SameAs(lastValid));
+            Assert.That(m_Manager.Current, Is.SameAs(lastValid));
+            Assert.That(m_Manager.StatusText, Is.EqualTo("Calibration cancelled"));
+        }
+
         [Test] public void CaptureAButtonOnlyArms() { m_Manager.CaptureA(); Assert.That(m_Manager.State, Is.EqualTo(PianoCalibrationManager.CaptureState.ArmedA)); Assert.That(m_Manager.CapturedPointCount, Is.Zero); }
         [Test]
         public void CaptureInstructionsUseTheFixedC4AndC5Corners()

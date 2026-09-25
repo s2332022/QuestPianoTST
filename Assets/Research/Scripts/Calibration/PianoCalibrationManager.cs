@@ -34,6 +34,7 @@ namespace QuestPianoMotion.Research
         double m_ArmedAt;
         int m_CountdownNumber;
         int m_PointCount;
+        int m_LastArmedPoint;
 
         public event Action<PianoCalibrationData> CalibrationChanged;
         public event Action CaptureSessionStarted;
@@ -50,6 +51,7 @@ namespace QuestPianoMotion.Research
         public int ValidSampleCount => m_SampleCount;
         public int CapturedPointCount => m_PointCount;
         public string StatusText { get; private set; } = "Not calibrated";
+        public bool PassthroughRetryAvailable { get; private set; }
         public string PersistentPath => Path.Combine(Application.persistentDataPath, "PianoResearch", "piano_calibration.json");
 
         public void Initialize(XRHandPoseProvider hands)
@@ -91,16 +93,41 @@ namespace QuestPianoMotion.Research
             Arm(2);
         }
 
-        public void CancelCapture()
+        public void CancelCapture(string status = "Capture cancelled")
         {
-            if (State == CaptureState.Idle && !IsCapturing && !m_CaptureSessionActive) return;
+            if (State == CaptureState.Idle && !IsCapturing && !m_CaptureSessionActive)
+            {
+                PassthroughRetryAvailable = false;
+                return;
+            }
             State = CaptureState.Idle;
             Array.Clear(m_Samples, 0, m_SampleCount);
             m_SampleCount = 0;
             m_LastSampleCallback = 0;
             IsCapturing = false;
-            StatusText = "Capture cancelled";
+            StatusText = status;
+            PassthroughRetryAvailable = false;
             EndCaptureSession();
+        }
+
+        public void FailPassthroughStartup(string reason)
+        {
+            CancelCapture("Passthrough unavailable\n" + reason);
+            PassthroughRetryAvailable = true;
+        }
+
+        public void RetryPassthroughCapture()
+        {
+            if (!PassthroughRetryAvailable || State != CaptureState.Idle) return;
+            Arm(m_LastArmedPoint);
+        }
+
+        public void CancelCalibration()
+        {
+            CancelCapture("Calibration cancelled");
+            PassthroughRetryAvailable = false;
+            if (State == CaptureState.Idle && !IsCapturing && !m_CaptureSessionActive)
+                StatusText = "Calibration cancelled";
         }
 
         void OnDisable() => CancelCapture();
@@ -111,8 +138,8 @@ namespace QuestPianoMotion.Research
         void Arm(int point)
         {
             if (State != CaptureState.Idle) return;
-            StartCaptureSession();
             State = (CaptureState)((int)CaptureState.ArmedA + point);
+            m_LastArmedPoint = point;
             m_ArmedAt = Time.unscaledTimeAsDouble;
             m_CountdownNumber = 3;
             m_SampleCount = 0;
@@ -120,6 +147,8 @@ namespace QuestPianoMotion.Research
                 ? m_Hands.LatestDisplayFrame.CallbackIndex : 0;
             IsCapturing = true;
             StatusText = $"Calibration: {(char)('A' + point)} - {PointInstruction(point)} - Capture in 3";
+            PassthroughRetryAvailable = false;
+            StartCaptureSession();
         }
 
         static string PointInstruction(int point) => point == 0 ? "C4 front-left corner" :
@@ -262,8 +291,9 @@ namespace QuestPianoMotion.Research
             CancelCapture();
             m_PointCount = 0;
             IsCapturing = true;
-            StartCaptureSession();
             StatusText = $"Capture A ({PointInstruction(0)})";
+            m_LastArmedPoint = 0;
+            StartCaptureSession();
         }
 
         public bool CaptureNextPoint()
