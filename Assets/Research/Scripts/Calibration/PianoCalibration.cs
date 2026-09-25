@@ -7,6 +7,14 @@ namespace QuestPianoMotion.Research
     public sealed class PianoCalibrationData
     {
         public int formatVersion = PianoCalibrationMath.CurrentFormatVersion;
+        public float scaleX = 1f;
+        public float scaleZ = 1f;
+        public float physicalOctaveSpanMeters;
+        public float physicalWhiteKeyDepthMeters;
+        public float baseOctaveSpanMeters = VirtualPianoKeyboard.BaseOctaveSpanMeters;
+        public float baseWhiteKeyDepthMeters = VirtualPianoKeyboard.BaseWhiteKeyDepthMeters;
+        public int calibrationPointDefinitionVersion;
+        public float scaleY => 1f;
         public string calibrationId = string.Empty;
         public string createdUtc = string.Empty;
         public bool valid;
@@ -28,12 +36,70 @@ namespace QuestPianoMotion.Research
     public static class PianoCalibrationMath
     {
         public const int CurrentFormatVersion = 1;
+        public const int CurrentPointDefinitionVersion = 1;
         public const float MinimumPointDistanceMeters = 0.05f;
         public const float MinimumAxisAngleDegrees = 10f;
         public const float GoodPointDistanceMeters = 0.20f;
+        public const float MinimumScaleX = 0.50f;
+        public const float MaximumScaleX = 1.50f;
+        public const float MinimumScaleZ = 0.60f;
+        public const float MaximumScaleZ = 1.40f;
 
         public static bool IsSupportedFormatVersion(int version) =>
             version == 0 || version == CurrentFormatVersion;
+
+        public static bool TryValidateScale(float scaleX, float scaleZ, out string message)
+        {
+            if (!IsFinite(scaleX) || !IsFinite(scaleZ))
+            {
+                message = "Calibration scale must be finite.";
+                return false;
+            }
+            if (scaleX < MinimumScaleX || scaleX > MaximumScaleX ||
+                scaleZ < MinimumScaleZ || scaleZ > MaximumScaleZ)
+            {
+                message = $"Calibration scale is outside the supported range (X {MinimumScaleX:F2}-{MaximumScaleX:F2}, Z {MinimumScaleZ:F2}-{MaximumScaleZ:F2}).";
+                return false;
+            }
+            message = "Valid";
+            return true;
+        }
+
+        public static bool TryGetScale(PianoCalibrationData calibration, out float scaleX,
+            out float scaleZ, out string message)
+        {
+            scaleX = 1f;
+            scaleZ = 1f;
+            if (calibration == null)
+            {
+                message = "Calibration is missing.";
+                return false;
+            }
+            if (calibration.calibrationPointDefinitionVersion == 0)
+            {
+                message = "Legacy calibration uses base geometry scale.";
+                return true;
+            }
+            if (calibration.calibrationPointDefinitionVersion != CurrentPointDefinitionVersion)
+            {
+                message = $"Unsupported calibration point definition version: {calibration.calibrationPointDefinitionVersion}";
+                return false;
+            }
+            if (!TryValidateScale(calibration.scaleX, calibration.scaleZ, out message))
+                return false;
+            if (!IsFinite(calibration.physicalOctaveSpanMeters) || calibration.physicalOctaveSpanMeters <= 0f ||
+                !IsFinite(calibration.physicalWhiteKeyDepthMeters) || calibration.physicalWhiteKeyDepthMeters <= 0f ||
+                !IsFinite(calibration.baseOctaveSpanMeters) || calibration.baseOctaveSpanMeters <= 0f ||
+                !IsFinite(calibration.baseWhiteKeyDepthMeters) || calibration.baseWhiteKeyDepthMeters <= 0f)
+            {
+                message = "Calibration dimensions must be finite and positive.";
+                return false;
+            }
+            scaleX = calibration.scaleX;
+            scaleZ = calibration.scaleZ;
+            message = "Valid";
+            return true;
+        }
 
         public static bool TryCalculate(Vector3 a, Vector3 b, Vector3 c, out PianoCalibrationData data)
         {
@@ -69,6 +135,22 @@ namespace QuestPianoMotion.Research
                 return false;
             }
             var depth = depthOrthogonal.normalized;
+            var physicalOctaveSpan = rightRaw.magnitude;
+            var physicalWhiteKeyDepth = depthOrthogonal.magnitude;
+            var scaleX = physicalOctaveSpan / VirtualPianoKeyboard.BaseOctaveSpanMeters;
+            var scaleZ = physicalWhiteKeyDepth / VirtualPianoKeyboard.BaseWhiteKeyDepthMeters;
+            data.physicalOctaveSpanMeters = physicalOctaveSpan;
+            data.physicalWhiteKeyDepthMeters = physicalWhiteKeyDepth;
+            data.baseOctaveSpanMeters = VirtualPianoKeyboard.BaseOctaveSpanMeters;
+            data.baseWhiteKeyDepthMeters = VirtualPianoKeyboard.BaseWhiteKeyDepthMeters;
+            data.calibrationPointDefinitionVersion = CurrentPointDefinitionVersion;
+            data.scaleX = scaleX;
+            data.scaleZ = scaleZ;
+            if (!TryValidateScale(scaleX, scaleZ, out var scaleMessage))
+            {
+                data.validationMessage = scaleMessage;
+                return false;
+            }
             var normal = Vector3.Cross(depth, right).normalized;
             if (Vector3.Dot(normal, Vector3.up) < 0f)
             {
@@ -94,7 +176,7 @@ namespace QuestPianoMotion.Research
         static bool IsFinite(Vector3 value) =>
             IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
 
-        static bool IsFinite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
+        public static bool IsFinite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
     }
 
 }

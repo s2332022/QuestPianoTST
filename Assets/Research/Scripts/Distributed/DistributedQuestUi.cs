@@ -25,6 +25,9 @@ namespace QuestPianoMotion.Research.Distributed
         MinimalHandVisualizer m_Visualizer;
         Canvas m_Canvas;
         TMP_Text m_Status;
+        TMP_Text m_CalibrationStatus;
+        string m_LastCalibrationMessage;
+        string m_LastCaptureHand;
         TMP_InputField m_Ip;
         GameObject m_IpKeyboard;
         Canvas m_IpKeyboardCanvas;
@@ -47,6 +50,7 @@ namespace QuestPianoMotion.Research.Distributed
         public bool HasBeenPlaced { get; private set; }
         public TMP_FontAsset FontAsset => m_Font;
         public TMP_Text StatusText => m_Status;
+        public TMP_Text CalibrationStatusText => m_CalibrationStatus;
         public Canvas WorldCanvas => m_Canvas;
         public TMP_Text HandInputDiagnosticText => m_HandInputDiagnostic;
         public RectTransform HandCursor => m_HandCursor;
@@ -75,6 +79,17 @@ namespace QuestPianoMotion.Research.Distributed
 
         void Update()
         {
+            if (m_CalibrationStatus != null && m_Calibration != null)
+            {
+                var message = m_Calibration.StatusText;
+                var hand = m_Calibration.CaptureHandName;
+                if (message != m_LastCalibrationMessage || hand != m_LastCaptureHand)
+                {
+                    m_LastCalibrationMessage = message;
+                    m_LastCaptureHand = hand;
+                    m_CalibrationStatus.text = $"Capture Hand: {hand.ToUpperInvariant()}\n{message}";
+                }
+            }
             if (Time.unscaledTime < m_NextUpdate || m_Client == null || m_Status == null)
                 return;
             m_NextUpdate = Time.unscaledTime + 0.25f;
@@ -173,10 +188,10 @@ namespace QuestPianoMotion.Research.Distributed
             m_Ip.readOnly = true;
             m_Ip.contentType = TMP_InputField.ContentType.DecimalNumber;
             m_Ip.onSelect.AddListener(_ => OpenIpKeyboard());
-            m_DefaultIp = m_Settings != null ? m_Settings.pcIpAddress : "192.168.1.2";
+            m_DefaultIp = DistributedSettings.DefaultPcIpAddress;
             var savedIp = LoadSavedIp();
             if (m_Settings != null)
-                m_Settings.pcIpAddress = savedIp ?? (IsValidIpv4(m_DefaultIp) ? m_DefaultIp : "192.168.1.2");
+                m_Settings.pcIpAddress = savedIp ?? m_DefaultIp;
             m_Ip.text = m_Settings != null ? m_Settings.pcIpAddress : m_DefaultIp;
             m_EditingIp = m_Ip.text;
             CreateIpKeyboard();
@@ -198,6 +213,7 @@ namespace QuestPianoMotion.Research.Distributed
             CreateButton("CALIBRATION B", new Vector2(180, -540), 140, () => m_Calibration?.CaptureB());
             CreateButton("CALIBRATION C", new Vector2(340, -540), 140, () => m_Calibration?.CaptureC());
             CreateButton("SAVE CALIBRATION", new Vector2(500, -540), 170, () => m_Calibration?.SaveCalibration());
+            CreateButton("CANCEL CAPTURE", new Vector2(560, -610), 140, () => m_Calibration?.CancelCapture());
             CreateButton("RECENTER UI", new Vector2(20, -610), 150, RecenterUi);
             CreateButton("HAND GAMEOBJECTS", new Vector2(190, -610), 190,
                 () => m_Visualizer?.UseGameObjectsDiagnostic());
@@ -208,6 +224,9 @@ namespace QuestPianoMotion.Research.Distributed
                 "Pointer: NONE\nHand: RIGHT\nPinch: OPEN\nDistance: 0.0 mm\nTarget: NONE\nClicks: 0",
                 new Vector2(20, -680), new Vector2(680, 190), 18,
                 TextAlignmentOptions.TopLeft, new Color(0.7f, 0.95f, 1f, 1f));
+            m_CalibrationStatus = CreateText("Calibration Capture Status", transform,
+                "Capture Hand: RIGHT\nNot calibrated", new Vector2(20, -790), new Vector2(680, 90),
+                23, TextAlignmentOptions.TopLeft, Color.white);
             CreateHandCursor();
 
             var inputController = FindAnyObjectByType<XriHandUiInputController>(FindObjectsInactive.Include);
@@ -554,8 +573,11 @@ namespace QuestPianoMotion.Research.Distributed
             cursor.SetActive(false);
         }
 
+        void OnDisable() => m_Calibration?.CancelCapture();
+
         void OnDestroy()
         {
+            m_Calibration?.CancelCapture();
             if (m_HandCursorSprite != null)
                 Destroy(m_HandCursorSprite);
             if (m_HandCursorTexture != null)

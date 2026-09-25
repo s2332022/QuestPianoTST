@@ -7,14 +7,16 @@ namespace QuestPianoMotion.Research.Distributed
     public enum PoseSendPolicy { DynamicOnly, BeforeRenderOnly, Both }
     public enum PoseDisplaySource { LocalRaw, PcDisplayPose }
     public enum DistributedLogVerbosity { ErrorsOnly, Normal, Detailed }
+    public enum DistributedNetworkState { Stopped, Listening, Connecting, Connected, TimedOut, Stopping }
 
     [DisallowMultipleComponent]
     public sealed class DistributedSettings : MonoBehaviour
     {
+        public const string DefaultPcIpAddress = "10.76.247.112";
         [Header("Explicit mode (never inferred from platform)")]
         public ResearchExecutionMode executionMode = ResearchExecutionMode.StandaloneQuest;
         [Header("Network")]
-        public string pcIpAddress = "192.168.1.2";
+        public string pcIpAddress = DefaultPcIpAddress;
         [Min(1)] public int pcReceivePort = 50000;
         [Min(1)] public int questReceivePort = 50001;
         [Min(1)] public int clockSyncPort = 50002;

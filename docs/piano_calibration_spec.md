@@ -2,9 +2,9 @@
 
 ## Points
 
-- A: front-left edge of the reference white key; becomes the keyboard origin.
-- B: a point to the right along the keyboard.
-- C: a point toward the rear of the keyboard.
+- A: top-surface front-left corner of the C4 white key; becomes the keyboard origin.
+- B: top-surface front-left corner of the C5 white key; A-B is one physical octave.
+- C: top-surface back-left corner of the C4 white key; A-C is its physical depth.
 
 Use “Point Hand Left/Right” to choose the marker hand. “Register Next Point” samples that hand's
 tracked index-tip joint, so the other hand can operate the UI.
@@ -17,13 +17,26 @@ normalized as `depth`. `normal = normalize(cross(depth,right))`. `Quaternion.Loo
 maps local +Z to depth and local +Y to normal; local +X consequently maps to right. The virtual
 keyboard root is assigned the calculated origin and rotation.
 
+The measured octave span is `length(B-A)`. The measured white-key depth is the length of
+`(C-A) - project(C-A, right)`. `scaleX` is the measured octave span divided by the base octave span;
+`scaleZ` is the measured white-key depth divided by the base white-key depth. `scaleY` is always 1.
+The base dimensions are defined once by `VirtualPianoKeyboard`: 36 mm white-key center pitch,
+252 mm octave span (seven white-key intervals), 33.84 mm white-key width, and 160 mm white-key depth.
+Scale limits are X 0.50–1.50 and Z 0.60–1.40. Non-finite, non-positive, and out-of-range scales
+are rejected before applying any transform.
+
 The runtime `KeyboardRoot` origin remains A and is assigned the calibration origin and rotation; the
-scene object named `Piano Root` is not transformed by calibration. The generated keys are children of
-`Keyboard Geometry`, which is a thin geometry parent under `KeyboardRoot`. Its local position is the
-fixed model offset `(0.01692, 0, 0.080)` m and its local scale is one. The C4 white-key cube keeps
-its existing local position `(0, 0, 0)` under that parent, so its center is at the offset from
-`KeyboardRoot` and its front-left edge coincides with A. The offset is applied once to the geometry
-parent; key dimensions and all key-to-key local spacing remain unchanged.
+scene object named `Piano Root` is not transformed by calibration. `KeyboardRoot.localScale` remains
+one. The generated keys, meshes, and colliders are children of `Keyboard Geometry`. Only this
+geometry transform scales, with local scale `(scaleX, 1, scaleZ)`. Its local position is recomputed
+as `(BaseWhiteKeyWidthMeters*scaleX/2, 0, BaseWhiteKeyDepthMeters*scaleZ/2)`. At scale 1 this is the
+existing `(0.01692, 0, 0.080)` m origin offset. Since a transform's own local position is not scaled
+by its own local scale, this adjustment keeps the offset applied once and places the C4 top-surface
+front-left corner at A. The C4 cube's local center is `(0, -0.009, 0)`, placing its top face at the
+calibration plane. C5's front-left and C4's back-left corners consequently match B and C.
+
+X and Z key spacing, key sizes, meshes, and colliders follow the geometry scale. Key animation moves
+the key down 8 mm in local Y; because `scaleY` is 1, the world-space travel remains 8 mm.
 
 Any pair of points closer than 5 cm is rejected. Axes within 10 degrees of parallel or antiparallel
 are rejected, as is a degenerate orthogonalized depth. `LastCalibrationAttempt` stores the latest
@@ -38,20 +51,25 @@ is a 0..1 score: the minimum of point-separation quality (5 cm is 0, 20 cm is 1)
 
 ## Virtual keyboard geometry
 
-The generated visual is C4 through C5 (MIDI 60..72): eight white keys and five black keys. White-key
-center pitch is 0.036 m. Each white cube is 0.03384 m wide, 0.018 m high, and 0.160 m deep. Each
-black cube is 0.02088 m wide, 0.025 m high, and 0.0928 m deep, centered between adjacent white keys
-at local Y=0.012 m and Z=0.035 m. Calibration changes position and rotation only; it never changes
-scale.
+The generated visual remains C4 through C5 (MIDI 60..72): eight white keys and five black keys.
+White-key center pitch is 0.036 m. Each white cube is 0.03384 m wide, 0.018 m high, and 0.160 m
+deep. Each black cube is 0.02088 m wide, 0.025 m high, and 0.0928 m deep, centered between
+adjacent white keys at local Y=0.012 m and Z=0.035 m.
 
 The canonical file is
 `Application.persistentDataPath/PianoResearch/piano_calibration.json`. It is loaded on startup,
 and a snapshot named `piano_calibration.json` is written into every session folder.
-Saved fields are `formatVersion` (currently 1), ID/time/validity, A/B/C, origin, right/depth/normal,
-rotation, minimum point distance, source-axis angle, quality score/label, and validation message.
-Legacy files without a version deserialize as version 0 and are migrated in memory to version 1;
-unknown versions are rejected without replacing an existing valid in-memory state. Saves and session
-snapshots use the currently applied valid calibration, never a failed `LastCalibrationAttempt`.
+`formatVersion` remains 1. New data adds `scaleX`, `scaleZ`, physical octave span and white-key depth,
+the base octave span and white-key depth, and `calibrationPointDefinitionVersion` (1 for the C4/C5
+point meanings above). Old files without that field are treated as point-definition version 0, with
+`scaleX=1` and `scaleZ=1`; their saved position and rotation are preserved. Unknown format or point
+definition versions are rejected without replacing an existing valid state. Saves and session
+snapshots use `CurrentAppliedCalibration`, including its scale fields, never a failed
+`LastCalibrationAttempt`.
+
+A failed three-point attempt reports its validation reason, preserves the last applied position,
+rotation, and scale, and leaves the final point available for recapture. Successful calibration status
+shows width and depth scales plus the measured octave span and white-key depth in millimeters.
 
 All stored points and the applied pose are Unity world-space values. Consequently a saved calibration
 is reusable only while the XR tracking coordinate frame remains spatially consistent. A guardian/

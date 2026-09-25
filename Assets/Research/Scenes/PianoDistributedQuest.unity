@@ -422,7 +422,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: QuestPianoMotion.Research::QuestPianoMotion.Research.Distributed.DistributedSettings
   executionMode: 1
-  pcIpAddress: 192.168.1.2
+  pcIpAddress: 10.76.247.112
   pcReceivePort: 50000
   questReceivePort: 50001
   clockSyncPort: 50002

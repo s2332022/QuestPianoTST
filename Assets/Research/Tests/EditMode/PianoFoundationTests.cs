@@ -9,8 +9,9 @@ namespace QuestPianoMotion.Research.Tests
     public sealed class PianoFoundationTests
     {
         const float PositionTolerance = 1e-5f;
-        static readonly Vector3 GeometryOffset = new Vector3(0.01692f, 0f, 0.080f);
-        static readonly Vector3 WhiteKeyCenterSpacing = new Vector3(0.036f, 0f, 0f);
+        static readonly Vector3 GeometryOffset = VirtualPianoKeyboard.BaseGeometryOriginOffsetMeters;
+        static readonly Vector3 WhiteKeyCenterSpacing =
+            new Vector3(VirtualPianoKeyboard.BaseWhiteKeyPitchMeters, 0f, 0f);
 
         static GameObject CreateKeyboard(out VirtualPianoKeyboard keyboard)
         {
@@ -25,7 +26,7 @@ namespace QuestPianoMotion.Research.Tests
             Assert.That(buildKeyboard, Is.Not.Null);
             Assert.That(keyboard.KeyboardRoot, Is.Null);
             var component = keyboard;
-            Assert.DoesNotThrow(() => buildKeyboard.Invoke(component, null));
+            Assert.DoesNotThrow(() => awake.Invoke(component, null));
             Assert.That(keyboard.KeyboardRoot, Is.Not.Null);
             Assert.That(host.transform.childCount, Is.EqualTo(1));
             var geometry = keyboard.KeyboardRoot.Find("Keyboard Geometry");
@@ -48,10 +49,25 @@ namespace QuestPianoMotion.Research.Tests
         static PianoCalibrationData CreateCalibration(Vector3 origin, Quaternion rotation)
         {
             Assert.That(PianoCalibrationMath.TryCalculate(
-                origin, origin + rotation * Vector3.right * 0.3f,
-                origin + rotation * Vector3.forward * 0.3f, out var data), Is.True);
+                origin, origin + rotation * Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters,
+                origin + rotation * Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters,
+                out var data), Is.True);
             return data;
         }
+
+        static PianoCalibrationData CreateScaledCalibration(Vector3 origin, Quaternion rotation,
+            float scaleX, float scaleZ)
+        {
+            Assert.That(PianoCalibrationMath.TryCalculate(
+                origin,
+                origin + rotation * Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters * scaleX,
+                origin + rotation * Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters * scaleZ,
+                out var data), Is.True, data != null ? data.validationMessage : "No calibration result");
+            return data;
+        }
+
+        static Vector3 TopFaceCorner(Transform key, float xSign, float zSign) =>
+            key.TransformPoint(new Vector3(xSign * 0.5f, 0.5f, zSign * 0.5f));
 
         static GameObject CreateCalibrationFixture(out PianoCalibrationManager manager, out XRHandPoseProvider hands)
         {
@@ -73,6 +89,9 @@ namespace QuestPianoMotion.Research.Tests
                 TrackingState = XRHandJointTrackingState.Pose,
                 Pose = new Pose(position, Quaternion.identity)
             };
+            frame.RightJoints[0] = frame.LeftJoints[0];
+            frame.LeftTracked = true;
+            frame.RightTracked = true;
             SetPrivateField(hands, "m_Display", frame);
         }
 
@@ -151,7 +170,7 @@ namespace QuestPianoMotion.Research.Tests
         public void Calibration_ProducesOrthogonalAxes()
         {
             Assert.That(PianoCalibrationMath.TryCalculate(
-                Vector3.zero, Vector3.right * 0.3f, Vector3.forward * 0.3f, out var data), Is.True);
+                Vector3.zero, Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters, Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters, out var data), Is.True);
             Assert.That(Vector3.Dot(data.rightAxis, data.depthAxis), Is.EqualTo(0f).Within(1e-5f));
             Assert.That(Vector3.Dot(data.normal, data.rightAxis), Is.EqualTo(0f).Within(1e-5f));
             Assert.That(Vector3.Dot(data.normal, data.depthAxis), Is.EqualTo(0f).Within(1e-5f));
@@ -186,10 +205,12 @@ namespace QuestPianoMotion.Research.Tests
         public void Calibration_RejectsMirroredOrientation()
         {
             Assert.That(PianoCalibrationMath.TryCalculate(
-                Vector3.zero, Vector3.right * 0.3f, Vector3.back * 0.3f, out var data), Is.False);
+                Vector3.zero, Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters,
+                Vector3.back * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters, out var data), Is.False);
             Assert.That(data.validationMessage, Does.Contain("mirrored"));
             Assert.That(PianoCalibrationMath.TryCalculate(
-                Vector3.zero, Vector3.left * 0.3f, Vector3.forward * 0.3f, out data), Is.False);
+                Vector3.zero, Vector3.left * VirtualPianoKeyboard.BaseOctaveSpanMeters,
+                Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters, out data), Is.False);
             Assert.That(data.validationMessage, Does.Contain("mirrored"));
         }
 
@@ -198,9 +219,11 @@ namespace QuestPianoMotion.Research.Tests
         {
             var a = new Vector3(1.2f, 0.7f, -0.4f);
             Assert.That(PianoCalibrationMath.TryCalculate(
-                a, a + Vector3.right * 0.3f, a + Vector3.forward * 0.3f, out var data), Is.True);
+                a, a + Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters, a + Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters, out var data), Is.True);
             Assert.That(data.origin, Is.EqualTo(a));
-            Assert.That(typeof(PianoCalibrationData).GetField("scale"), Is.Null);
+            Assert.That(data.scaleX, Is.EqualTo(1f).Within(1e-5f));
+            Assert.That(data.scaleZ, Is.EqualTo(1f).Within(1e-5f));
+            Assert.That(data.scaleY, Is.EqualTo(1f));
         }
 
         [Test]
@@ -215,21 +238,90 @@ namespace QuestPianoMotion.Research.Tests
         public void Calibration_QualityRewardsSeparatedPerpendicularPoints()
         {
             Assert.That(PianoCalibrationMath.TryCalculate(
-                Vector3.zero, Vector3.right * 0.3f, Vector3.forward * 0.3f, out var good), Is.True);
+                Vector3.zero, Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters,
+                Vector3.forward * 0.20f, out var good), Is.True);
             Assert.That(PianoCalibrationMath.TryCalculate(
-                Vector3.zero, Vector3.right * 0.06f, new Vector3(0.04f, 0f, 0.06f), out var low), Is.True);
+                Vector3.zero,
+                Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters * PianoCalibrationMath.MinimumScaleX,
+                new Vector3(VirtualPianoKeyboard.BaseOctaveSpanMeters * PianoCalibrationMath.MinimumScaleX * 0.5f,
+                    0f, VirtualPianoKeyboard.BaseWhiteKeyDepthMeters * PianoCalibrationMath.MinimumScaleZ),
+                out var low), Is.True);
             Assert.That(good.qualityScore, Is.EqualTo(1f).Within(1e-5f));
             Assert.That(good.qualityLabel, Is.EqualTo("Good"));
             Assert.That(low.qualityScore, Is.LessThan(good.qualityScore));
         }
 
         [Test]
+        public void Calibration_BaseDimensionsProduceUnitScales()
+        {
+            Assert.That(PianoCalibrationMath.TryCalculate(Vector3.zero,
+                Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters,
+                Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters, out var data), Is.True);
+            Assert.That(data.scaleX, Is.EqualTo(1f).Within(1e-5f));
+            Assert.That(data.scaleZ, Is.EqualTo(1f).Within(1e-5f));
+            Assert.That(data.scaleY, Is.EqualTo(1f));
+            Assert.That(data.physicalOctaveSpanMeters,
+                Is.EqualTo(VirtualPianoKeyboard.BaseWhiteKeyPitchMeters * 7f).Within(1e-5f));
+            Assert.That(data.baseOctaveSpanMeters, Is.EqualTo(VirtualPianoKeyboard.BaseOctaveSpanMeters));
+            Assert.That(data.baseWhiteKeyDepthMeters, Is.EqualTo(VirtualPianoKeyboard.BaseWhiteKeyDepthMeters));
+        }
+
+        [TestCase(0.8f)]
+        [TestCase(1.2f)]
+        public void Calibration_HorizontalScaleMatchesMeasuredOctaveSpan(float expectedScaleX)
+        {
+            var data = CreateScaledCalibration(Vector3.zero, Quaternion.identity, expectedScaleX, 1f);
+            Assert.That(data.scaleX, Is.EqualTo(expectedScaleX).Within(1e-5f));
+            Assert.That(data.scaleZ, Is.EqualTo(1f).Within(1e-5f));
+        }
+
+        [TestCase(0.8f)]
+        [TestCase(1.2f)]
+        public void Calibration_DepthScaleMatchesMeasuredWhiteKeyDepth(float expectedScaleZ)
+        {
+            var data = CreateScaledCalibration(Vector3.zero, Quaternion.identity, 1f, expectedScaleZ);
+            Assert.That(data.scaleX, Is.EqualTo(1f).Within(1e-5f));
+            Assert.That(data.scaleZ, Is.EqualTo(expectedScaleZ).Within(1e-5f));
+        }
+
+        [TestCase(0f, 1f)]
+        [TestCase(-0.1f, 1f)]
+        [TestCase(float.NaN, 1f)]
+        [TestCase(float.PositiveInfinity, 1f)]
+        [TestCase(1f, 0f)]
+        [TestCase(1f, -0.1f)]
+        [TestCase(1f, float.NaN)]
+        [TestCase(1f, float.NegativeInfinity)]
+        public void Calibration_RejectsNonFiniteOrNonPositiveScale(float scaleX, float scaleZ)
+        {
+            Assert.That(PianoCalibrationMath.TryValidateScale(scaleX, scaleZ, out var message), Is.False);
+            Assert.That(message, Is.Not.EqualTo("Valid"));
+        }
+
+        [TestCase(0.49f, 1f)]
+        [TestCase(1.51f, 1f)]
+        [TestCase(1f, 0.59f)]
+        [TestCase(1f, 1.41f)]
+        public void Calibration_RejectsScaleOutsideSafetyRange(float scaleX, float scaleZ)
+        {
+            Assert.That(PianoCalibrationMath.TryValidateScale(scaleX, scaleZ, out _), Is.False);
+        }
+
+        [Test]
         public void Calibration_FormatVersionIsSerializedAndValidated()
         {
             Assert.That(PianoCalibrationMath.TryCalculate(
-                Vector3.zero, Vector3.right * 0.3f, Vector3.forward * 0.3f, out var data), Is.True);
+                Vector3.zero, Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters, Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters, out var data), Is.True);
             var json = JsonUtility.ToJson(data);
             Assert.That(json, Does.Contain("\"formatVersion\":1"));
+            Assert.That(json, Does.Contain("\"scaleX\""));
+            Assert.That(json, Does.Contain("\"scaleZ\""));
+            Assert.That(json, Does.Contain("\"physicalOctaveSpanMeters\""));
+            Assert.That(json, Does.Contain("\"physicalWhiteKeyDepthMeters\""));
+            Assert.That(json, Does.Contain("\"baseOctaveSpanMeters\""));
+            Assert.That(json, Does.Contain("\"baseWhiteKeyDepthMeters\""));
+            Assert.That(json, Does.Contain("\"calibrationPointDefinitionVersion\":1"));
+            Assert.That(json, Does.Not.Contain("\"scaleY\""));
             Assert.That(PianoCalibrationMath.IsSupportedFormatVersion(0), Is.True, "legacy unversioned data");
             Assert.That(PianoCalibrationMath.IsSupportedFormatVersion(1), Is.True);
             Assert.That(PianoCalibrationMath.IsSupportedFormatVersion(2), Is.False);
@@ -241,8 +333,8 @@ namespace QuestPianoMotion.Research.Tests
             var host = CreateCalibrationFixture(out var manager, out var hands);
             try
             {
-                Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * 0.3f,
-                    Vector3.forward * 0.3f), Is.True);
+                Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters,
+                    Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters), Is.True);
                 Assert.That(manager.LastValidCalibration, Is.SameAs(manager.LastCalibrationAttempt));
                 Assert.That(manager.LastValidCalibration.valid, Is.True);
             }
@@ -258,8 +350,8 @@ namespace QuestPianoMotion.Research.Tests
             var host = CreateCalibrationFixture(out var manager, out var hands);
             try
             {
-                Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * 0.3f,
-                    Vector3.forward * 0.3f), Is.True);
+                Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters,
+                    Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters), Is.True);
                 Assert.That(manager.CurrentAppliedCalibration, Is.SameAs(manager.LastValidCalibration));
                 Assert.That(manager.Current, Is.SameAs(manager.CurrentAppliedCalibration));
             }
@@ -278,8 +370,8 @@ namespace QuestPianoMotion.Research.Tests
                 var count = 0;
                 PianoCalibrationData received = null;
                 manager.CalibrationChanged += value => { count++; received = value; };
-                Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * 0.3f,
-                    Vector3.forward * 0.3f), Is.True);
+                Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters,
+                    Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters), Is.True);
                 Assert.That(count, Is.EqualTo(1));
                 Assert.That(received, Is.SameAs(manager.CurrentAppliedCalibration));
             }
@@ -295,8 +387,8 @@ namespace QuestPianoMotion.Research.Tests
             var host = CreateCalibrationFixture(out var manager, out var hands);
             try
             {
-                Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * 0.3f,
-                    Vector3.forward * 0.3f), Is.True);
+                Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters,
+                    Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters), Is.True);
                 var valid = manager.LastValidCalibration;
                 Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * 0.01f,
                     Vector3.forward * 0.01f), Is.False);
@@ -314,8 +406,8 @@ namespace QuestPianoMotion.Research.Tests
             var host = CreateCalibrationFixture(out var manager, out var hands);
             try
             {
-                Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * 0.3f,
-                    Vector3.forward * 0.3f), Is.True);
+                Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters,
+                    Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters), Is.True);
                 var applied = manager.CurrentAppliedCalibration;
                 Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * 0.01f,
                     Vector3.forward * 0.01f), Is.False);
@@ -336,8 +428,8 @@ namespace QuestPianoMotion.Research.Tests
             {
                 var count = 0;
                 manager.CalibrationChanged += _ => count++;
-                Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * 0.3f,
-                    Vector3.forward * 0.3f), Is.True);
+                Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters,
+                    Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters), Is.True);
                 Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * 0.01f,
                     Vector3.forward * 0.01f), Is.False);
                 Assert.That(count, Is.EqualTo(1));
@@ -356,15 +448,60 @@ namespace QuestPianoMotion.Research.Tests
             try
             {
                 manager.CalibrationChanged += keyboard.ApplyCalibration;
-                Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * 0.3f,
-                    Vector3.forward * 0.3f), Is.True);
+                Assert.That(CaptureAttempt(manager, hands, Vector3.zero,
+                    Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters * 0.8f,
+                    Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters * 1.2f), Is.True);
                 var position = keyboard.KeyboardRoot.position;
                 var rotation = keyboard.KeyboardRoot.rotation;
+                var geometryPosition = keyboard.KeyboardGeometry.localPosition;
+                var geometryScale = keyboard.KeyboardGeometry.localScale;
                 Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * 0.01f,
                     Vector3.forward * 0.01f), Is.False);
                 AssertVectorClose(position, keyboard.KeyboardRoot.position);
                 Assert.That(Quaternion.Angle(rotation, keyboard.KeyboardRoot.rotation),
                     Is.LessThanOrEqualTo(PositionTolerance));
+                AssertVectorClose(Vector3.one, keyboard.KeyboardRoot.localScale);
+                AssertVectorClose(geometryPosition, keyboard.KeyboardGeometry.localPosition);
+                AssertVectorClose(geometryScale, keyboard.KeyboardGeometry.localScale);
+            }
+            finally
+            {
+                Object.DestroyImmediate(keyboardHost);
+                Object.DestroyImmediate(managerHost);
+            }
+        }
+
+        [Test]
+        public void CalibrationManager_ScaleFailureKeepsAppliedScaleAndAllowsRecapturingLastPoint()
+        {
+            var managerHost = CreateCalibrationFixture(out var manager, out var hands);
+            var keyboardHost = CreateKeyboard(out var keyboard);
+            try
+            {
+                manager.CalibrationChanged += keyboard.ApplyCalibration;
+                Assert.That(CaptureAttempt(manager, hands, Vector3.zero,
+                    Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters,
+                    Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters), Is.True);
+                var lastValid = manager.LastValidCalibration;
+                var geometryPosition = keyboard.KeyboardGeometry.localPosition;
+                var geometryScale = keyboard.KeyboardGeometry.localScale;
+
+                var origin = new Vector3(1f, 2f, 3f);
+                Assert.That(CaptureAttempt(manager, hands, origin,
+                    origin + Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters,
+                    origin + Vector3.forward * 0.08f), Is.False);
+                Assert.That(manager.LastValidCalibration, Is.SameAs(lastValid));
+                Assert.That(manager.CurrentAppliedCalibration, Is.SameAs(lastValid));
+                Assert.That(manager.CapturedPointCount, Is.EqualTo(2));
+                Assert.That(manager.IsCapturing, Is.True);
+                AssertVectorClose(geometryPosition, keyboard.KeyboardGeometry.localPosition);
+                AssertVectorClose(geometryScale, keyboard.KeyboardGeometry.localScale);
+
+                SetHandPoint(hands, origin + Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters);
+                Assert.That(manager.CaptureNextPoint(), Is.True);
+                Assert.That(manager.LastValidCalibration, Is.SameAs(manager.CurrentAppliedCalibration));
+                Assert.That(manager.CurrentAppliedCalibration.scaleZ, Is.EqualTo(1f).Within(1e-5f));
+                AssertVectorClose(origin, keyboard.KeyboardRoot.position);
             }
             finally
             {
@@ -381,8 +518,8 @@ namespace QuestPianoMotion.Research.Tests
             {
                 try
                 {
-                    Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * 0.3f,
-                        Vector3.forward * 0.3f), Is.True);
+                    Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters,
+                        Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters), Is.True);
                     var calibrationId = manager.LastValidCalibration.calibrationId;
                     Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * 0.01f,
                         Vector3.forward * 0.01f), Is.False);
@@ -390,6 +527,8 @@ namespace QuestPianoMotion.Research.Tests
                     var saved = JsonUtility.FromJson<PianoCalibrationData>(File.ReadAllText(manager.PersistentPath));
                     Assert.That(saved.valid, Is.True);
                     Assert.That(saved.calibrationId, Is.EqualTo(calibrationId));
+                    Assert.That(saved.scaleX, Is.EqualTo(manager.CurrentAppliedCalibration.scaleX));
+                    Assert.That(saved.scaleZ, Is.EqualTo(manager.CurrentAppliedCalibration.scaleZ));
                 }
                 finally
                 {
@@ -461,15 +600,83 @@ namespace QuestPianoMotion.Research.Tests
             {
                 try
                 {
-                    var expected = CreateCalibration(new Vector3(1.2f, 0.7f, -0.4f), Quaternion.identity);
+                    var expected = CreateScaledCalibration(new Vector3(1.2f, 0.7f, -0.4f),
+                        Quaternion.identity, 0.8f, 1.2f);
                     files.WriteText(JsonUtility.ToJson(expected, true));
                     var count = 0;
                     manager.CalibrationChanged += _ => count++;
                     Assert.That(manager.Load(), Is.True);
                     Assert.That(manager.CurrentAppliedCalibration, Is.SameAs(manager.LastValidCalibration));
                     AssertVectorClose(expected.origin, manager.CurrentAppliedCalibration.origin);
+                    Assert.That(manager.CurrentAppliedCalibration.scaleX, Is.EqualTo(0.8f).Within(1e-5f));
+                    Assert.That(manager.CurrentAppliedCalibration.scaleZ, Is.EqualTo(1.2f).Within(1e-5f));
                     Assert.That(manager.LastCalibrationAttempt.valid, Is.True);
                     Assert.That(count, Is.EqualTo(1));
+                }
+                finally
+                {
+                    Object.DestroyImmediate(host);
+                }
+            }
+        }
+
+        [Test]
+        public void CalibrationManager_SaveAndLoadPreservesCurrentAppliedScaleFields()
+        {
+            var host = CreateCalibrationFixture(out var manager, out var hands);
+            using (var files = new PersistentCalibrationFileScope(manager))
+            {
+                try
+                {
+                    Assert.That(CaptureAttempt(manager, hands, Vector3.zero,
+                        Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters * 0.8f,
+                        Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters * 1.2f), Is.True);
+                    Assert.That(manager.CurrentAppliedCalibration.scaleX, Is.EqualTo(0.8f).Within(1e-5f));
+                    Assert.That(manager.CurrentAppliedCalibration.scaleZ, Is.EqualTo(1.2f).Within(1e-5f));
+                    Assert.That(manager.Save(), Is.True);
+
+                    var saved = JsonUtility.FromJson<PianoCalibrationData>(File.ReadAllText(manager.PersistentPath));
+                    Assert.That(saved.scaleX, Is.EqualTo(manager.CurrentAppliedCalibration.scaleX));
+                    Assert.That(saved.scaleZ, Is.EqualTo(manager.CurrentAppliedCalibration.scaleZ));
+                    Assert.That(saved.physicalOctaveSpanMeters,
+                        Is.EqualTo(manager.CurrentAppliedCalibration.physicalOctaveSpanMeters));
+                    Assert.That(saved.physicalWhiteKeyDepthMeters,
+                        Is.EqualTo(manager.CurrentAppliedCalibration.physicalWhiteKeyDepthMeters));
+                    Assert.That(saved.calibrationPointDefinitionVersion,
+                        Is.EqualTo(PianoCalibrationMath.CurrentPointDefinitionVersion));
+
+                    manager.ClearCalibration();
+                    Assert.That(manager.Load(), Is.True);
+                    Assert.That(manager.CurrentAppliedCalibration.scaleX, Is.EqualTo(0.8f).Within(1e-5f));
+                    Assert.That(manager.CurrentAppliedCalibration.scaleZ, Is.EqualTo(1.2f).Within(1e-5f));
+                }
+                finally
+                {
+                    Object.DestroyImmediate(host);
+                }
+            }
+        }
+
+        [Test]
+        public void CalibrationManager_InvalidStoredScalePreservesCurrentAppliedCalibration()
+        {
+            var host = CreateCalibrationFixture(out var manager, out var hands);
+            using (var files = new PersistentCalibrationFileScope(manager))
+            {
+                try
+                {
+                    Assert.That(CaptureAttempt(manager, hands, Vector3.zero,
+                        Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters,
+                        Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters), Is.True);
+                    var valid = manager.LastValidCalibration;
+                    var invalid = CreateScaledCalibration(Vector3.one, Quaternion.identity, 1f, 1f);
+                    invalid.scaleX = 0f;
+                    files.WriteText(JsonUtility.ToJson(invalid, true));
+
+                    Assert.That(manager.Load(), Is.False);
+                    Assert.That(manager.LastValidCalibration, Is.SameAs(valid));
+                    Assert.That(manager.CurrentAppliedCalibration, Is.SameAs(valid));
+                    Assert.That(manager.StatusText, Does.Contain("outside the supported range"));
                 }
                 finally
                 {
@@ -486,8 +693,8 @@ namespace QuestPianoMotion.Research.Tests
             {
                 try
                 {
-                    Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * 0.3f,
-                        Vector3.forward * 0.3f), Is.True);
+                    Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters,
+                        Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters), Is.True);
                     var valid = manager.LastValidCalibration;
                     var applied = manager.CurrentAppliedCalibration;
                     files.WriteText("{");
@@ -515,8 +722,8 @@ namespace QuestPianoMotion.Research.Tests
             {
                 try
                 {
-                    Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * 0.3f,
-                        Vector3.forward * 0.3f), Is.True);
+                    Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters,
+                        Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters), Is.True);
                     var valid = manager.LastValidCalibration;
                     var unknown = CreateCalibration(Vector3.one, Quaternion.identity);
                     unknown.formatVersion = 99;
@@ -534,21 +741,30 @@ namespace QuestPianoMotion.Research.Tests
             }
         }
 
-        [Test]
-        public void CalibrationManager_VersionZeroLoadMigratesToCurrentVersion()
+        [TestCase(0)]
+        [TestCase(1)]
+        public void CalibrationManager_OldPointDefinitionLoadsAtUnitScaleAndPreservesPose(int formatVersion)
         {
             var host = CreateCalibrationFixture(out var manager, out _);
             using (var files = new PersistentCalibrationFileScope(manager))
             {
                 try
                 {
-                    var legacy = CreateCalibration(Vector3.one, Quaternion.identity);
-                    legacy.formatVersion = 0;
-                    files.WriteText(JsonUtility.ToJson(legacy, true));
+                    var legacyJson = "{\"formatVersion\":" + formatVersion + ",\"valid\":true," +
+                                     "\"origin\":{\"x\":1,\"y\":2,\"z\":3}," +
+                                     "\"rotation\":{\"x\":0,\"y\":0,\"z\":0,\"w\":1}}";
+                    files.WriteText(legacyJson);
                     Assert.That(manager.Load(), Is.True);
                     Assert.That(manager.CurrentAppliedCalibration.formatVersion,
                         Is.EqualTo(PianoCalibrationMath.CurrentFormatVersion));
                     Assert.That(manager.LastValidCalibration.valid, Is.True);
+                    Assert.That(manager.CurrentAppliedCalibration.calibrationPointDefinitionVersion, Is.Zero);
+                    Assert.That(manager.CurrentAppliedCalibration.scaleX, Is.EqualTo(1f));
+                    Assert.That(manager.CurrentAppliedCalibration.scaleZ, Is.EqualTo(1f));
+                    AssertVectorClose(new Vector3(1f, 2f, 3f), manager.CurrentAppliedCalibration.origin);
+                    Assert.That(manager.CurrentAppliedCalibration.rotation, Is.EqualTo(Quaternion.identity));
+                    Assert.That(manager.CurrentAppliedCalibration.physicalOctaveSpanMeters,
+                        Is.EqualTo(VirtualPianoKeyboard.BaseOctaveSpanMeters));
                 }
                 finally
                 {
@@ -563,8 +779,8 @@ namespace QuestPianoMotion.Research.Tests
             var host = CreateCalibrationFixture(out var manager, out var hands);
             try
             {
-                Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * 0.3f,
-                    Vector3.forward * 0.3f), Is.True);
+                Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters,
+                    Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters), Is.True);
                 manager.ClearCalibration();
                 Assert.That(manager.LastValidCalibration, Is.Null);
                 Assert.That(manager.CurrentAppliedCalibration, Is.Null);
@@ -585,8 +801,8 @@ namespace QuestPianoMotion.Research.Tests
                 "test-session-" + System.Guid.NewGuid().ToString("N"));
             try
             {
-                Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * 0.3f,
-                    Vector3.forward * 0.3f), Is.True);
+                Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters,
+                    Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters), Is.True);
                 var calibrationId = manager.LastValidCalibration.calibrationId;
                 Assert.That(CaptureAttempt(manager, hands, Vector3.zero, Vector3.right * 0.01f,
                     Vector3.forward * 0.01f), Is.False);
@@ -627,8 +843,10 @@ namespace QuestPianoMotion.Research.Tests
             {
                 var c4 = FindKey(keyboard.KeyboardRoot, 60);
                 Assert.That(c4, Is.Not.Null);
-                AssertVectorClose(GeometryOffset, keyboard.KeyboardRoot.InverseTransformPoint(c4.position));
-                AssertVectorClose(Vector3.zero, c4.localPosition);
+                var topCenter = c4.TransformPoint(Vector3.up * 0.5f);
+                AssertVectorClose(GeometryOffset, keyboard.KeyboardRoot.InverseTransformPoint(topCenter));
+                AssertVectorClose(new Vector3(0f, -VirtualPianoKeyboard.BaseWhiteKeyHeightMeters * 0.5f, 0f),
+                    c4.localPosition);
             }
             finally
             {
@@ -643,9 +861,7 @@ namespace QuestPianoMotion.Research.Tests
             try
             {
                 var c4 = FindKey(keyboard.KeyboardRoot, 60);
-                var c4Center = keyboard.KeyboardRoot.InverseTransformPoint(c4.position);
-                var c4FrontLeft = c4Center - GeometryOffset;
-                AssertVectorClose(Vector3.zero, c4FrontLeft);
+                AssertVectorClose(keyboard.KeyboardRoot.position, TopFaceCorner(c4, -1f, -1f));
             }
             finally
             {
@@ -662,8 +878,7 @@ namespace QuestPianoMotion.Research.Tests
             {
                 keyboard.ApplyCalibration(calibration);
                 var c4 = FindKey(keyboard.KeyboardRoot, 60);
-                AssertVectorClose(keyboard.KeyboardRoot.position,
-                    c4.position - keyboard.KeyboardRoot.rotation * GeometryOffset);
+                AssertVectorClose(calibration.pointA, TopFaceCorner(c4, -1f, -1f));
             }
             finally
             {
@@ -681,7 +896,7 @@ namespace QuestPianoMotion.Research.Tests
             {
                 keyboard.ApplyCalibration(calibration);
                 var c4 = FindKey(keyboard.KeyboardRoot, 60);
-                AssertVectorClose(origin, c4.position - GeometryOffset);
+                AssertVectorClose(origin, TopFaceCorner(c4, -1f, -1f));
             }
             finally
             {
@@ -715,12 +930,274 @@ namespace QuestPianoMotion.Research.Tests
                 Assert.That(geometry, Is.Not.Null);
                 AssertVectorClose(GeometryOffset, geometry.localPosition);
                 AssertVectorClose(Vector3.one, geometry.localScale);
-                AssertVectorClose(Vector3.zero, c4.localPosition);
-                AssertVectorClose(GeometryOffset, keyboard.KeyboardRoot.InverseTransformPoint(c4.position));
+                AssertVectorClose(new Vector3(0f, -VirtualPianoKeyboard.BaseWhiteKeyHeightMeters * 0.5f, 0f),
+                    c4.localPosition);
+                AssertVectorClose(GeometryOffset,
+                    keyboard.KeyboardRoot.InverseTransformPoint(c4.TransformPoint(Vector3.up * 0.5f)));
             }
             finally
             {
                 Object.DestroyImmediate(host);
+            }
+        }
+
+        [Test]
+        public void KeyboardCalibration_ScalesOnlyGeometryAndKeepsKeyboardRootAtUnitScale()
+        {
+            var host = CreateKeyboard(out var keyboard);
+            var hostPosition = new Vector3(1.4f, 0.9f, -0.7f);
+            var hostRotation = Quaternion.Euler(3f, 17f, 1f);
+            var calibration = CreateScaledCalibration(new Vector3(-0.4f, 1.1f, 2.3f),
+                Quaternion.Euler(12f, 37f, 8f), 0.8f, 1.2f);
+            try
+            {
+                host.transform.SetPositionAndRotation(hostPosition, hostRotation);
+                Assert.That(keyboard.TryApplyCalibration(calibration), Is.True);
+
+                AssertVectorClose(hostPosition, host.transform.position);
+                Assert.That(Quaternion.Angle(hostRotation, host.transform.rotation),
+                    Is.LessThanOrEqualTo(PositionTolerance));
+                AssertVectorClose(Vector3.one, host.transform.localScale);
+                AssertVectorClose(Vector3.one, keyboard.KeyboardRoot.localScale);
+                AssertVectorClose(new Vector3(0.8f, 1f, 1.2f), keyboard.KeyboardGeometry.localScale);
+                AssertVectorClose(new Vector3(VirtualPianoKeyboard.BaseWhiteKeyWidthMeters * 0.4f,
+                    0f, VirtualPianoKeyboard.BaseWhiteKeyDepthMeters * 0.6f),
+                    keyboard.KeyboardGeometry.localPosition);
+            }
+            finally
+            {
+                Object.DestroyImmediate(host);
+            }
+        }
+
+        [Test]
+        public void KeyboardCalibration_ThreeTopFaceCornersMatchRotatedTranslatedPhysicalPoints()
+        {
+            var origin = new Vector3(1.3f, -0.2f, 2.4f);
+            var rotation = Quaternion.Euler(12f, 37f, 8f);
+            var calibration = CreateScaledCalibration(origin, rotation, 0.8f, 1.2f);
+            var host = CreateKeyboard(out var keyboard);
+            try
+            {
+                Assert.That(keyboard.TryApplyCalibration(calibration), Is.True);
+                var c4 = FindKey(keyboard.KeyboardRoot, 60);
+                var c5 = FindKey(keyboard.KeyboardRoot, 72);
+                AssertVectorClose(calibration.pointA, TopFaceCorner(c4, -1f, -1f));
+                AssertVectorClose(calibration.pointB, TopFaceCorner(c5, -1f, -1f));
+                AssertVectorClose(calibration.pointC, TopFaceCorner(c4, -1f, 1f));
+
+                var expectedC4TopCenter = origin + calibration.rightAxis *
+                    (VirtualPianoKeyboard.BaseWhiteKeyWidthMeters * calibration.scaleX * 0.5f) +
+                    calibration.depthAxis *
+                    (VirtualPianoKeyboard.BaseWhiteKeyDepthMeters * calibration.scaleZ * 0.5f);
+                AssertVectorClose(expectedC4TopCenter, c4.TransformPoint(Vector3.up * 0.5f));
+            }
+            finally
+            {
+                Object.DestroyImmediate(host);
+            }
+        }
+
+        [Test]
+        public void KeyboardCalibration_WhiteKeyWidthPitchAndDepthFollowIndependentScales()
+        {
+            const float scaleX = 1.2f;
+            const float scaleZ = 0.8f;
+            var host = CreateKeyboard(out var keyboard);
+            try
+            {
+                Assert.That(keyboard.TryApplyCalibration(
+                    CreateScaledCalibration(Vector3.zero, Quaternion.identity, scaleX, scaleZ)), Is.True);
+                var c4 = FindKey(keyboard.KeyboardRoot, 60);
+                var d4 = FindKey(keyboard.KeyboardRoot, 62);
+                var c5 = FindKey(keyboard.KeyboardRoot, 72);
+                Assert.That(Vector3.Distance(c4.position, d4.position),
+                    Is.EqualTo(VirtualPianoKeyboard.BaseWhiteKeyPitchMeters * scaleX).Within(PositionTolerance));
+                Assert.That(Vector3.Distance(c4.position, c5.position),
+                    Is.EqualTo(VirtualPianoKeyboard.BaseOctaveSpanMeters * scaleX).Within(PositionTolerance));
+                Assert.That(Vector3.Distance(TopFaceCorner(c4, -1f, -1f), TopFaceCorner(c4, 1f, -1f)),
+                    Is.EqualTo(VirtualPianoKeyboard.BaseWhiteKeyWidthMeters * scaleX).Within(PositionTolerance));
+                Assert.That(Vector3.Distance(TopFaceCorner(c4, -1f, -1f), TopFaceCorner(c4, -1f, 1f)),
+                    Is.EqualTo(VirtualPianoKeyboard.BaseWhiteKeyDepthMeters * scaleZ).Within(PositionTolerance));
+            }
+            finally
+            {
+                Object.DestroyImmediate(host);
+            }
+        }
+
+        [Test]
+        public void KeyboardCalibration_BlackKeyRelativePositionFollowsAnisotropicScale()
+        {
+            const float scaleX = 0.8f;
+            const float scaleZ = 1.2f;
+            var host = CreateKeyboard(out var keyboard);
+            try
+            {
+                Assert.That(keyboard.TryApplyCalibration(
+                    CreateScaledCalibration(Vector3.zero, Quaternion.identity, scaleX, scaleZ)), Is.True);
+                var white = FindKey(keyboard.KeyboardRoot, 60);
+                var black = FindKey(keyboard.KeyboardRoot, 61, true);
+                var relative = keyboard.KeyboardRoot.InverseTransformPoint(black.position) -
+                               keyboard.KeyboardRoot.InverseTransformPoint(white.position);
+                AssertVectorClose(new Vector3(VirtualPianoKeyboard.BaseWhiteKeyPitchMeters * 0.5f * scaleX,
+                    0.021f, 0.035f * scaleZ), relative);
+            }
+            finally
+            {
+                Object.DestroyImmediate(host);
+            }
+        }
+
+        [Test]
+        public void KeyboardCalibration_CollidersRemainAlignedWithKeyMeshesAfterScale()
+        {
+            var host = CreateKeyboard(out var keyboard);
+            try
+            {
+                Assert.That(keyboard.TryApplyCalibration(
+                    CreateScaledCalibration(Vector3.one, Quaternion.Euler(4f, 25f, 2f), 0.8f, 1.2f)), Is.True);
+                Physics.SyncTransforms();
+                foreach (var renderer in keyboard.KeyboardRoot.GetComponentsInChildren<Renderer>(true))
+                {
+                    var collider = renderer.GetComponent<BoxCollider>();
+                    Assert.That(collider, Is.Not.Null, renderer.name);
+                    AssertVectorClose(renderer.bounds.center, collider.bounds.center);
+                    AssertVectorClose(renderer.bounds.size, collider.bounds.size);
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(host);
+            }
+        }
+
+        [Test]
+        public void KeyboardCalibration_PressedAnimationKeepsWorldYTravelAtEightMillimeters()
+        {
+            var host = CreateKeyboard(out var keyboard);
+            try
+            {
+                Assert.That(keyboard.TryApplyCalibration(
+                    CreateScaledCalibration(Vector3.zero, Quaternion.Euler(10f, 35f, 3f), 0.8f, 1.2f)), Is.True);
+                var c4 = FindKey(keyboard.KeyboardRoot, 60);
+                var restTop = c4.TransformPoint(Vector3.up * 0.5f);
+                var noteOn = new MidiMessage(1d, 1, "test", MidiEventType.NoteOn, 1, 60, 100, -1, -1);
+                keyboard.ApplyMidi(in noteOn);
+                var pressedTop = c4.TransformPoint(Vector3.up * 0.5f);
+                Assert.That(Vector3.Dot(restTop - pressedTop, keyboard.KeyboardRoot.up),
+                    Is.EqualTo(0.008f).Within(PositionTolerance));
+            }
+            finally
+            {
+                Object.DestroyImmediate(host);
+            }
+        }
+
+        [TestCase(0f, 1f)]
+        [TestCase(-0.1f, 1f)]
+        [TestCase(float.NaN, 1f)]
+        [TestCase(float.PositiveInfinity, 1f)]
+        [TestCase(1f, 0f)]
+        [TestCase(1f, -0.1f)]
+        [TestCase(1f, float.NaN)]
+        [TestCase(1f, float.PositiveInfinity)]
+        [TestCase(0.49f, 1f)]
+        [TestCase(1.51f, 1f)]
+        [TestCase(1f, 0.59f)]
+        [TestCase(1f, 1.41f)]
+        public void KeyboardCalibration_InvalidScaleIsRejectedWithoutChangingAppliedTransforms(float scaleX,
+            float scaleZ)
+        {
+            var host = CreateKeyboard(out var keyboard);
+            try
+            {
+                var current = CreateScaledCalibration(new Vector3(0.2f, 0.3f, 0.4f),
+                    Quaternion.Euler(4f, 12f, 2f), 1f, 1f);
+                Assert.That(keyboard.TryApplyCalibration(current), Is.True);
+                var rootPosition = keyboard.KeyboardRoot.position;
+                var rootRotation = keyboard.KeyboardRoot.rotation;
+                var rootScale = keyboard.KeyboardRoot.localScale;
+                var geometryPosition = keyboard.KeyboardGeometry.localPosition;
+                var geometryScale = keyboard.KeyboardGeometry.localScale;
+                var invalid = CreateScaledCalibration(Vector3.one, Quaternion.identity, 1f, 1f);
+                invalid.scaleX = scaleX;
+                invalid.scaleZ = scaleZ;
+
+                Assert.That(keyboard.TryApplyCalibration(invalid), Is.False);
+                AssertVectorClose(rootPosition, keyboard.KeyboardRoot.position);
+                Assert.That(Quaternion.Angle(rootRotation, keyboard.KeyboardRoot.rotation),
+                    Is.LessThanOrEqualTo(PositionTolerance));
+                AssertVectorClose(rootScale, keyboard.KeyboardRoot.localScale);
+                AssertVectorClose(geometryPosition, keyboard.KeyboardGeometry.localPosition);
+                AssertVectorClose(geometryScale, keyboard.KeyboardGeometry.localScale);
+            }
+            finally
+            {
+                Object.DestroyImmediate(host);
+            }
+        }
+
+        [Test]
+        public void KeyboardCalibration_DoesNotMoveCameraXrOriginPianoRootOrRawHandPose()
+        {
+            var cameraObject = new GameObject("HMD Camera", typeof(Camera));
+            var xrOrigin = new GameObject("XR Origin").transform;
+            var rawHandHost = new GameObject("Raw Hand Pose Provider");
+            var rawHands = rawHandHost.AddComponent<XRHandPoseProvider>();
+            var host = CreateKeyboard(out var keyboard);
+            var previousTrackingOrigin = ResearchServices.TrackingOrigin;
+            var raw = new HandPoseFrame(1)
+            {
+                RightTracked = true,
+                RightRootPose = new Pose(new Vector3(0.2f, 0.4f, 0.6f), Quaternion.Euler(1f, 2f, 3f))
+            };
+            raw.RightJoints[0] = new HandJointPose
+            {
+                JointId = XRHandJointID.IndexTip,
+                PoseValid = true,
+                TrackingState = XRHandJointTrackingState.Pose,
+                Pose = new Pose(new Vector3(0.7f, 0.8f, 0.9f), Quaternion.identity)
+            };
+            SetPrivateField(rawHands, "m_Raw", raw);
+            cameraObject.transform.SetPositionAndRotation(new Vector3(2f, 3f, 4f), Quaternion.Euler(5f, 6f, 7f));
+            xrOrigin.SetPositionAndRotation(new Vector3(-1f, 0.5f, 2f), Quaternion.Euler(1f, 20f, 2f));
+            host.transform.SetPositionAndRotation(new Vector3(0.5f, 0.6f, 0.7f), Quaternion.Euler(3f, 8f, 1f));
+            var cameraPosition = cameraObject.transform.position;
+            var cameraRotation = cameraObject.transform.rotation;
+            var originPosition = xrOrigin.position;
+            var originRotation = xrOrigin.rotation;
+            var rootParentPosition = host.transform.position;
+            var rootParentRotation = host.transform.rotation;
+            var rawRootPose = raw.RightRootPose;
+            var rawJointPose = raw.FindJoint(false, XRHandJointID.IndexTip).Pose;
+            typeof(ResearchServices).GetProperty("TrackingOrigin").SetValue(null, xrOrigin);
+            try
+            {
+                Assert.That(keyboard.TryApplyCalibration(
+                    CreateScaledCalibration(Vector3.one, Quaternion.Euler(2f, 40f, 3f), 0.8f, 1.2f)), Is.True);
+                AssertVectorClose(cameraPosition, cameraObject.transform.position);
+                Assert.That(Quaternion.Angle(cameraRotation, cameraObject.transform.rotation),
+                    Is.LessThanOrEqualTo(PositionTolerance));
+                AssertVectorClose(originPosition, xrOrigin.position);
+                Assert.That(Quaternion.Angle(originRotation, xrOrigin.rotation),
+                    Is.LessThanOrEqualTo(PositionTolerance));
+                AssertVectorClose(rootParentPosition, host.transform.position);
+                Assert.That(Quaternion.Angle(rootParentRotation, host.transform.rotation),
+                    Is.LessThanOrEqualTo(PositionTolerance));
+                Assert.That(typeof(XRHandPoseProvider).GetField("m_Raw", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .GetValue(rawHands), Is.SameAs(raw));
+                Assert.That(raw.RightRootPose.position, Is.EqualTo(rawRootPose.position));
+                Assert.That(raw.FindJoint(false, XRHandJointID.IndexTip).Pose.position,
+                    Is.EqualTo(rawJointPose.position));
+            }
+            finally
+            {
+                typeof(ResearchServices).GetProperty("TrackingOrigin").SetValue(null, previousTrackingOrigin);
+                Object.DestroyImmediate(host);
+                Object.DestroyImmediate(rawHandHost);
+                Object.DestroyImmediate(xrOrigin.gameObject);
+                Object.DestroyImmediate(cameraObject);
             }
         }
 
@@ -756,7 +1233,7 @@ namespace QuestPianoMotion.Research.Tests
                     var white = FindKey(root, whiteNotes[i]);
                     var black = FindKey(root, blackNotes[i], true);
                     var relative = root.InverseTransformPoint(black.position) - root.InverseTransformPoint(white.position);
-                    AssertVectorClose(new Vector3(0.018f, 0.012f, 0.035f), relative);
+                    AssertVectorClose(new Vector3(0.018f, 0.021f, 0.035f), relative);
                 }
             }
             finally

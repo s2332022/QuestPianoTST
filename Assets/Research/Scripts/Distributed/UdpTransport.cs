@@ -34,6 +34,7 @@ namespace QuestPianoMotion.Research.Distributed
         }
         public bool TryDequeue(out ReceivedDatagram datagram)
         {if(!m_Received.TryDequeue(out datagram))return false;Interlocked.Decrement(ref m_QueueCount);return true;}
+        public void ClearQueuedDatagrams(){while(TryDequeue(out var datagram))Recycle(datagram);}
         public void Recycle(ReceivedDatagram datagram){if(datagram?.Buffer!=null)m_Pool.Add(datagram.Buffer);}
         void ReceiveLoop()
         {
@@ -51,7 +52,7 @@ namespace QuestPianoMotion.Research.Distributed
                 catch(ObjectDisposedException){break;}catch(Exception){if(m_Running)Interlocked.Increment(ref m_ReceiveFailures);}
             }
         }
-        public void Stop(){m_Running=false;try{m_Socket?.Close();}catch(Exception){}if(m_Thread!=null&&m_Thread.IsAlive)m_Thread.Join(1000);m_Thread=null;m_Socket=null;while(TryDequeue(out var d))Recycle(d);}
+        public void Stop(){m_Running=false;try{m_Socket?.Close();}catch(Exception){}if(m_Thread!=null&&m_Thread.IsAlive)m_Thread.Join(1000);m_Thread=null;m_Socket=null;ClearQueuedDatagrams();}
         public void Dispose()=>Stop();
     }
 }

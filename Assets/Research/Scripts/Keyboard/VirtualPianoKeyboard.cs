@@ -55,6 +55,11 @@ namespace QuestPianoMotion.Research
     {
         public const int FirstNote = 60;
         public const int LastNote = 72;
+        public const float BaseWhiteKeyPitchMeters = 0.036f;
+        public const float BaseOctaveSpanMeters = BaseWhiteKeyPitchMeters * 7f;
+        public const float BaseWhiteKeyWidthMeters = 0.03384f;
+        public const float BaseWhiteKeyDepthMeters = 0.160f;
+        public const float BaseWhiteKeyHeightMeters = 0.018f;
         readonly Dictionary<int, PianoKeyView> m_Keys = new Dictionary<int, PianoKeyView>(13);
         readonly KeyboardStateTracker m_State = new KeyboardStateTracker();
         Material m_SharedMaterial;
@@ -62,6 +67,9 @@ namespace QuestPianoMotion.Research
         public event Action<KeyboardStateChange> StateChanged;
         public KeyboardStateTracker State => m_State;
         public Transform KeyboardRoot { get; private set; }
+        public Transform KeyboardGeometry { get; private set; }
+        public static Vector3 BaseGeometryOriginOffsetMeters =>
+            new Vector3(BaseWhiteKeyWidthMeters * 0.5f, 0f, BaseWhiteKeyDepthMeters * 0.5f);
 
         void Awake()
         {
@@ -102,10 +110,32 @@ namespace QuestPianoMotion.Research
             }
         }
 
-        public void ApplyCalibration(PianoCalibrationData calibration)
+        public void ApplyCalibration(PianoCalibrationData calibration) => TryApplyCalibration(calibration);
+
+        public bool TryApplyCalibration(PianoCalibrationData calibration)
         {
-            if (calibration == null || !calibration.valid || KeyboardRoot == null) return;
-            KeyboardRoot.SetPositionAndRotation(calibration.origin, calibration.rotation);
+            if (calibration == null || !calibration.valid || KeyboardRoot == null || KeyboardGeometry == null ||
+                !PianoCalibrationMath.TryGetScale(calibration, out var scaleX, out var scaleZ, out _))
+                return false;
+
+            var origin = calibration.origin;
+            var rotation = calibration.rotation;
+            if (!PianoCalibrationMath.IsFinite(origin.x) || !PianoCalibrationMath.IsFinite(origin.y) ||
+                !PianoCalibrationMath.IsFinite(origin.z) || !PianoCalibrationMath.IsFinite(rotation.x) ||
+                !PianoCalibrationMath.IsFinite(rotation.y) || !PianoCalibrationMath.IsFinite(rotation.z) ||
+                !PianoCalibrationMath.IsFinite(rotation.w) ||
+                rotation.x * rotation.x + rotation.y * rotation.y + rotation.z * rotation.z +
+                rotation.w * rotation.w < 0.000001f)
+                return false;
+
+            KeyboardRoot.localScale = Vector3.one;
+            KeyboardRoot.SetPositionAndRotation(origin, rotation);
+            KeyboardGeometry.localScale = new Vector3(scaleX, 1f, scaleZ);
+            KeyboardGeometry.localPosition = new Vector3(
+                BaseWhiteKeyWidthMeters * scaleX * 0.5f,
+                0f,
+                BaseWhiteKeyDepthMeters * scaleZ * 0.5f);
+            return true;
         }
 
         void OnStateChanged(KeyboardStateChange change)
@@ -120,27 +150,32 @@ namespace QuestPianoMotion.Research
             KeyboardRoot = new GameObject("Virtual Piano Keyboard C4-C5").transform;
             KeyboardRoot.SetParent(transform, false);
             KeyboardRoot.localPosition = Vector3.zero;
-            var geometry = new GameObject("Keyboard Geometry").transform;
-            geometry.SetParent(KeyboardRoot, false);
-            geometry.localPosition = new Vector3(0.01692f, 0f, 0.080f);
+            KeyboardRoot.localScale = Vector3.one;
+            KeyboardGeometry = new GameObject("Keyboard Geometry").transform;
+            KeyboardGeometry.SetParent(KeyboardRoot, false);
+            KeyboardGeometry.localPosition = BaseGeometryOriginOffsetMeters;
+            KeyboardGeometry.localScale = Vector3.one;
             var shader = Resources.Load<Shader>("ResearchUnlit") ?? Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
             m_SharedMaterial = new Material(shader) { enableInstancing = true };
-            const float whiteWidth = 0.036f;
-            const float whiteDepth = 0.16f;
+            const float blackKeyHeightMeters = 0.025f;
             var whiteIndex = 0;
             for (var note = FirstNote; note <= LastNote; ++note)
             {
                 var black = IsBlack(note);
                 var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 go.name = $"Key {note} {(black ? "Black" : "White")}";
-                go.transform.SetParent(geometry, false);
-                var x = black ? (whiteIndex - 0.5f) * whiteWidth : whiteIndex * whiteWidth;
-                var y = black ? 0.012f : 0f;
+                go.transform.SetParent(KeyboardGeometry, false);
+                var x = black
+                    ? (whiteIndex - 0.5f) * BaseWhiteKeyPitchMeters
+                    : whiteIndex * BaseWhiteKeyPitchMeters;
+                var y = black ? 0.012f : -BaseWhiteKeyHeightMeters * 0.5f;
                 var z = black ? 0.035f : 0f;
                 go.transform.localPosition = new Vector3(x, y, z);
                 go.transform.localScale = black
-                    ? new Vector3(whiteWidth * 0.58f, 0.025f, whiteDepth * 0.58f)
-                    : new Vector3(whiteWidth * 0.94f, 0.018f, whiteDepth);
+                    ? new Vector3(BaseWhiteKeyPitchMeters * 0.58f, blackKeyHeightMeters,
+                        BaseWhiteKeyDepthMeters * 0.58f)
+                    : new Vector3(BaseWhiteKeyWidthMeters, BaseWhiteKeyHeightMeters,
+                        BaseWhiteKeyDepthMeters);
                 var renderer = go.GetComponent<Renderer>();
                 renderer.sharedMaterial = m_SharedMaterial;
                 var color = black ? new Color(0.025f, 0.025f, 0.03f) : new Color(0.88f, 0.88f, 0.84f);

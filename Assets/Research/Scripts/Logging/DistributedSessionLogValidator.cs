@@ -45,6 +45,10 @@ namespace QuestPianoMotion.Research
         {
             public string session_id;
             public string end_utc;
+            public long queue_overflows;
+            public long recorded_rows;
+            public long log_lines;
+            public bool writer_flush_close_completed;
         }
 
         public static SessionLogValidationResult ValidateDirectory(string directory)
@@ -61,6 +65,7 @@ namespace QuestPianoMotion.Research
 
             var metadata = ReadJson<MetadataDocument>(directory, "session_metadata.json", result);
             var summary = ReadJson<SummaryDocument>(directory, "session_summary.json", result);
+            if (summary != null) ValidateSummary(directory, summary, result);
             if (metadata != null)
             {
                 if (!Guid.TryParse(metadata.session_id, out _)) result.Error("metadata.session_id is not a GUID.");
@@ -91,6 +96,41 @@ namespace QuestPianoMotion.Research
 
             ValidateClockValues(directory, result);
             return result;
+        }
+
+        static void ValidateSummary(string directory, SummaryDocument summary, SessionLogValidationResult result)
+        {
+            var path = Path.Combine(directory, "session_summary.json");
+            string json;
+            try { json = File.ReadAllText(path); }
+            catch (Exception exception)
+            {
+                result.Error("Could not read session_summary.json: " + exception.Message);
+                return;
+            }
+
+            var hasOverflowCount = json.IndexOf("\"queue_overflows\"", StringComparison.Ordinal) >= 0;
+            if (hasOverflowCount && summary.queue_overflows > 0)
+                result.Error("summary.queue_overflows is " + summary.queue_overflows + "; log rows were dropped.");
+            else if (!hasOverflowCount)
+                result.Warning("summary.queue_overflows is absent; log completeness cannot be confirmed.");
+            if (hasOverflowCount && summary.queue_overflows < 0)
+                result.Error("summary.queue_overflows is negative.");
+
+            var hasWriterStatus = json.IndexOf("\"writer_flush_close_completed\"", StringComparison.Ordinal) >= 0;
+            if (hasWriterStatus && !summary.writer_flush_close_completed)
+                result.Error("summary.writer_flush_close_completed is false; the writer did not confirm flush and close.");
+            else if (!hasWriterStatus)
+                result.Warning("summary.writer_flush_close_completed is absent; writer completion cannot be confirmed.");
+
+            var hasRecordedRows = json.IndexOf("\"recorded_rows\"", StringComparison.Ordinal) >= 0;
+            var hasLogLines = json.IndexOf("\"log_lines\"", StringComparison.Ordinal) >= 0;
+            if (hasRecordedRows && summary.recorded_rows < 0)
+                result.Error("summary.recorded_rows is negative.");
+            if (hasLogLines && summary.log_lines < 0)
+                result.Error("summary.log_lines is negative.");
+            if (hasRecordedRows && hasLogLines && summary.recorded_rows != summary.log_lines)
+                result.Error("summary.recorded_rows differs from summary.log_lines.");
         }
 
         static T ReadJson<T>(string directory, string fileName, SessionLogValidationResult result) where T : class

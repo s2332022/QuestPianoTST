@@ -15,8 +15,9 @@ namespace QuestPianoMotion.Research.Distributed
         {
             ++m_Received; if(!m_HasValue){m_HasValue=true;m_Highest=sequence;return default;}
             if(sequence==m_Highest){++m_Duplicates;return new SequenceObservation(true,false,0);}
-            if(unchecked((int)(sequence-m_Highest))>0){var distance=sequence-m_Highest;var missing=distance>1?distance-1:0;m_Missing+=missing;m_Highest=sequence;return new SequenceObservation(false,false,missing);}
+            if(IsNewer(sequence,m_Highest)){var distance=sequence-m_Highest;var missing=distance>1?distance-1:0;m_Missing+=missing;m_Highest=sequence;return new SequenceObservation(false,false,missing);}
             ++m_OutOfOrder;return new SequenceObservation(false,true,0);
         }
+        public static bool IsNewer(uint candidate,uint current)=>unchecked((int)(candidate-current))>0;
     }
 }

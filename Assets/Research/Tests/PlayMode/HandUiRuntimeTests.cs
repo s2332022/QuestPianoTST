@@ -12,6 +12,7 @@ using UnityEngine.XR.Interaction.Toolkit.UI;
 
 namespace QuestPianoMotion.Research.Tests
 {
+    // Exercises the LegacyDiagnostic fallback; XriHandUiModeTests covers XriStandard.
     public sealed class HandUiRuntimeTests
     {
         GameObject m_CameraObject;
@@ -39,6 +40,9 @@ namespace QuestPianoMotion.Research.Tests
             Canvas.ForceUpdateCanvases();
             yield return null;
             Canvas.ForceUpdateCanvases();
+            Assert.That(m_Module.enabled, Is.True);
+            Assert.That(m_Ui.LegacyRaycaster.enabled, Is.True);
+            Assert.That(m_Ui.XriRaycaster.enabled, Is.False);
         }
 
         [UnityTearDown]
@@ -91,10 +95,12 @@ namespace QuestPianoMotion.Research.Tests
         [Test]
         public void PinchDownHoldAndUp_SendOneDownOneUpAndOneClick()
         {
-            var button = Button("HAND GPU");
+            var button = Button("HAND GAMEOBJECTS");
             var invoked = 0;
             button.onClick.AddListener(() => ++invoked);
             Sample(button, 0.040f);
+            Assert.That(m_Module.CurrentTarget, Is.SameAs(button.gameObject),
+                $"screen={m_Module.LastScreenPoint} valid={m_Module.LastScreenValid} overCanvas={m_Module.LastOverCanvas} raycasts={m_Module.LastRaycastCount}");
             Sample(button, 0.025f);
             Assert.That(m_Module.PointerDownCount, Is.EqualTo(1));
             Sample(button, 0.020f);
@@ -110,8 +116,8 @@ namespace QuestPianoMotion.Research.Tests
         [Test]
         public void PinchUpOnDifferentButton_ReleasesWithoutClick()
         {
-            var down = Button("HAND GPU");
-            var up = Button("HAND GAMEOBJECTS");
+            var down = Button("HAND GAMEOBJECTS");
+            var up = Button("RECENTER UI");
             Sample(down, 0.040f);
             Sample(down, 0.020f);
             Sample(up, 0.020f);
@@ -125,7 +131,7 @@ namespace QuestPianoMotion.Research.Tests
         [Test]
         public void TrackingLoss_CancelsPressAndRequiresOpenBeforeAnotherDown()
         {
-            var button = Button("HAND GPU");
+            var button = Button("HAND GAMEOBJECTS");
             Sample(button, 0.040f);
             Sample(button, 0.020f);
             var position = Center(button);
@@ -143,7 +149,7 @@ namespace QuestPianoMotion.Research.Tests
         [Test]
         public void LeavingUi_CancelsPressAndCursorAndDoesNotRetriggerClosedPinch()
         {
-            var button = Button("HAND GPU");
+            var button = Button("HAND GAMEOBJECTS");
             Sample(button, 0.040f);
             Sample(button, 0.020f);
             var outside = m_Camera.transform.position + m_Camera.transform.forward + m_Camera.transform.right * 10f;
@@ -166,7 +172,7 @@ namespace QuestPianoMotion.Research.Tests
             Assert.That(m_Ui.HandCursor.gameObject.activeSelf, Is.True);
             AssertColor(m_Ui.HandCursorImage.color, Color.white);
 
-            var button = Button("HAND GPU");
+            var button = Button("HAND GAMEOBJECTS");
             Sample(button, 0.040f);
             AssertColor(m_Ui.HandCursorImage.color, Color.yellow);
             Sample(button, 0.020f);

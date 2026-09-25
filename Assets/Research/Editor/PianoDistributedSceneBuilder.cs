@@ -36,7 +36,7 @@ namespace QuestPianoMotion.Research.Editor
             var xriActions=AssetDatabase.LoadAssetAtPath<InputActionAsset>(XriInputActionsPath);if(xriActions==null)throw new FileNotFoundException("Missing XRI input actions",XriInputActionsPath);var rightPrefab=AssetDatabase.LoadAssetAtPath<GameObject>(RightNearFarPrefabPath);if(rightPrefab==null)throw new FileNotFoundException("Missing right Near-Far Interactor prefab",RightNearFarPrefabPath);
             var interactionManagerObject=new GameObject("XR Interaction Manager");var interactionManager=interactionManagerObject.AddComponent<XRInteractionManager>();var inputManagerObject=new GameObject("Input Action Manager");var inputManager=inputManagerObject.AddComponent<InputActionManager>();inputManager.actionAssets=new List<InputActionAsset>{xriActions};
             var rightInteractorObject=(GameObject)PrefabUtility.InstantiatePrefab(rightPrefab,scene);rightInteractorObject.name="Right Hand UI Near-Far Interactor";rightInteractorObject.transform.SetParent(offset.transform,false);var rightInteractor=rightInteractorObject.GetComponent<NearFarInteractor>();rightInteractor.interactionManager=interactionManager;rightInteractor.handedness=InteractorHandedness.Right;rightInteractor.enableNearCasting=false;rightInteractor.enableFarCasting=true;rightInteractor.enableUIInteraction=true;var aimDriver=rightInteractorObject.AddComponent<TrackedPoseDriver>();aimDriver.trackingType=TrackedPoseDriver.TrackingType.RotationAndPosition;aimDriver.updateType=TrackedPoseDriver.UpdateType.UpdateAndBeforeRender;aimDriver.positionInput=new InputActionProperty(Reference(xriActions,"XRI Right/Aim Position"));aimDriver.rotationInput=new InputActionProperty(Reference(xriActions,"XRI Right/Aim Rotation"));aimDriver.trackingStateInput=new InputActionProperty(Reference(xriActions,"XRI Right/Tracking State"));
-            var runtime=new GameObject("Research Runtime");runtime.AddComponent<XRHandPoseProvider>();runtime.AddComponent<VirtualPianoKeyboard>();runtime.AddComponent<PianoCalibrationManager>();runtime.AddComponent<MinimalHandVisualizer>();runtime.AddComponent<DistributedQuestComposition>();var inputController=runtime.AddComponent<XriHandUiInputController>();new GameObject("Piano Root");var ui=new GameObject("Research UI");ui.AddComponent<DistributedQuestUi>();var network=new GameObject("Network Client");var settings=network.AddComponent<DistributedSettings>();settings.executionMode=ResearchExecutionMode.DistributedQuestClient;network.AddComponent<NetworkMidiInput>();network.AddComponent<DistributedQuestClient>();var events=new GameObject("EventSystem");events.AddComponent<EventSystem>();var legacy=events.AddComponent<MinimalHandUiInputModule>();legacy.enabled=false;var xrUi=events.AddComponent<XRUIInputModule>();inputController.Configure(legacy,rightInteractor,xrUi,Reference(xriActions,"XRI Right/Is Tracked"));inputController.ApplyMode();Save(scene,QuestScene);
+            var runtime=new GameObject("Research Runtime");runtime.AddComponent<XRHandPoseProvider>();runtime.AddComponent<VirtualPianoKeyboard>();runtime.AddComponent<PianoCalibrationManager>();runtime.AddComponent<MinimalHandVisualizer>();runtime.AddComponent<DistributedQuestComposition>();var inputController=runtime.AddComponent<XriHandUiInputController>();new GameObject("Piano Root");var ui=new GameObject("Research UI");ui.AddComponent<DistributedQuestUi>();var network=new GameObject("Network Client");var settings=network.AddComponent<DistributedSettings>();settings.executionMode=ResearchExecutionMode.DistributedQuestClient;settings.pcIpAddress=DistributedSettings.DefaultPcIpAddress;network.AddComponent<NetworkMidiInput>();network.AddComponent<DistributedQuestClient>();var events=new GameObject("EventSystem");events.AddComponent<EventSystem>();var legacy=events.AddComponent<MinimalHandUiInputModule>();legacy.enabled=false;var xrUi=events.AddComponent<XRUIInputModule>();inputController.Configure(legacy,rightInteractor,xrUi,Reference(xriActions,"XRI Right/Is Tracked"));inputController.ApplyMode();Save(scene,QuestScene);
         }
         static void CreateHost()
         {
@@ -45,9 +45,30 @@ namespace QuestPianoMotion.Research.Editor
         static void Save(Scene scene,string path){Directory.CreateDirectory(Path.GetDirectoryName(path));EditorSceneManager.MarkSceneDirty(scene);if(!EditorSceneManager.SaveScene(scene,path))throw new IOException("Failed to save "+path);}
         [MenuItem("Quest Piano Motion/Validate Distributed Scenes")]
         public static void ValidateScenes(){Validate(QuestScene,new[]{"XR Origin","XR Interaction Manager","Input Action Manager","Research Runtime","Piano Root","Research UI","Network Client","EventSystem"});Validate(HostScene,new[]{"Distributed Host Runtime","MIDI Input","Network Server","Session Recorder","Host UI"});Debug.Log("Distributed scene validation passed.");}
-        static void Validate(string path,string[] expected){var scene=EditorSceneManager.OpenScene(path,OpenSceneMode.Single);var actual=scene.GetRootGameObjects().Select(x=>x.name).OrderBy(x=>x).ToArray();if(!actual.SequenceEqual(expected.OrderBy(x=>x)))throw new InvalidDataException(path+" roots: "+string.Join(",",actual));foreach(var root in scene.GetRootGameObjects())foreach(var t in root.GetComponentsInChildren<Transform>(true))if(GameObjectUtility.GetMonoBehavioursWithMissingScriptCount(t.gameObject)!=0)throw new InvalidDataException("Missing script: "+t.name);}
+        static void Validate(string path,string[] expected)
+        {
+            var scene=EditorSceneManager.OpenScene(path,OpenSceneMode.Single);
+            var actual=scene.GetRootGameObjects().Select(x=>x.name).OrderBy(x=>x).ToArray();
+            if(!actual.SequenceEqual(expected.OrderBy(x=>x)))throw new InvalidDataException(path+" roots: "+string.Join(",",actual));
+            foreach(var root in scene.GetRootGameObjects())
+            foreach(var t in root.GetComponentsInChildren<Transform>(true))
+            {
+                if(GameObjectUtility.GetMonoBehavioursWithMissingScriptCount(t.gameObject)!=0)
+                    throw new InvalidDataException("Missing script: "+t.name);
+                foreach(var component in t.GetComponents<Component>())
+                {
+                    if(component==null)continue;
+                    var iterator=new SerializedObject(component).GetIterator();
+                    while(iterator.NextVisible(true))
+                        if(iterator.propertyType==SerializedPropertyType.ObjectReference &&
+                           iterator.objectReferenceValue==null &&
+                           !iterator.objectReferenceEntityIdValue.Equals(default(UnityEngine.EntityId)))
+                            throw new InvalidDataException("Missing reference: "+path+" "+t.name+"/"+component.GetType().Name+"."+iterator.propertyPath);
+                }
+            }
+        }
         public static void BuildWindowsValidation(){BuildWindowsDevelopmentValidation();}
-        public static void BuildWindowsReleaseValidation(){Build(HostScene,BuildTarget.StandaloneWindows64,Path.Combine(Path.GetTempPath(),"QuestPianoMotion-Windows-Release-"+DateTime.UtcNow.ToString("yyyyMMdd-HHmmss"),"PianoDistributedHost.exe"),BuildOptions.CompressWithLz4);}
+        public static void BuildWindowsReleaseValidation(){Build(HostScene,BuildTarget.StandaloneWindows64,Path.Combine(Directory.GetParent(Application.dataPath).FullName,"Builds","WindowsHost","PianoDistributedHost.exe"),BuildOptions.CompressWithLz4);}
         public static void BuildWindowsDevelopmentValidation(){Build(HostScene,BuildTarget.StandaloneWindows64,Path.Combine(Path.GetTempPath(),"QuestPianoMotion-Windows-Development-"+DateTime.UtcNow.ToString("yyyyMMdd-HHmmss"),"PianoDistributedHost.exe"),BuildOptions.Development|BuildOptions.CompressWithLz4);}        [MenuItem("Quest Piano Motion/Build Android Quest Validation")]
         public static void BuildAndroidValidation()
         {
@@ -55,6 +76,8 @@ namespace QuestPianoMotion.Research.Editor
             var androidTarget = UnityEditor.Build.NamedBuildTarget.Android;
             var previousBackend = PlayerSettings.GetScriptingBackend(androidTarget);
             var previousArchitectures = PlayerSettings.Android.targetArchitectures;
+            var previousBuildTarget = EditorUserBuildSettings.activeBuildTarget;
+            var previousBuildTargetGroup = EditorUserBuildSettings.selectedBuildTargetGroup;
             try
             {
                 PlayerSettings.SetScriptingBackend(androidTarget, ScriptingImplementation.IL2CPP);
@@ -68,10 +91,56 @@ namespace QuestPianoMotion.Research.Editor
             {
                 PlayerSettings.SetScriptingBackend(androidTarget, previousBackend);
                 PlayerSettings.Android.targetArchitectures = previousArchitectures;
+                if (EditorUserBuildSettings.activeBuildTarget != previousBuildTarget &&
+                    !EditorUserBuildSettings.SwitchActiveBuildTarget(previousBuildTargetGroup, previousBuildTarget))
+                    throw new InvalidOperationException("Failed to restore the previous active build target: " + previousBuildTarget + ".");
             }
         }
-        static void Build(string scene,BuildTarget target,string output,BuildOptions options=BuildOptions.Development|BuildOptions.CompressWithLz4){PrepareBuildInfo();Directory.CreateDirectory(Path.GetDirectoryName(output));var report=BuildPipeline.BuildPlayer(new BuildPlayerOptions{scenes=new[]{scene},locationPathName=output,target=target,options=options});if(report.summary.result!=BuildResult.Succeeded)throw new InvalidDataException(target+" build failed: "+report.summary.result);Debug.Log(target+" validation build passed: "+output);}
-        static void PrepareBuildInfo(){Directory.CreateDirectory(Path.GetDirectoryName(BuildInfoPath));File.WriteAllText(BuildInfoPath,DateTime.UtcNow.ToString("O"));AssetDatabase.ImportAsset(BuildInfoPath,ImportAssetOptions.ForceSynchronousImport);}
+        static void Build(string scene,BuildTarget target,string output,BuildOptions options=BuildOptions.Development|BuildOptions.CompressWithLz4)
+        {
+            var buildInfoExisted=File.Exists(BuildInfoPath);
+            var previousBuildInfo=buildInfoExisted?File.ReadAllBytes(BuildInfoPath):null;
+            var preloadedBeforeBuild=PlayerSettings.GetPreloadedAssets();
+            var activeTargetBeforeBuild=EditorUserBuildSettings.activeBuildTarget;
+            var activeTargetGroupBeforeBuild=EditorUserBuildSettings.selectedBuildTargetGroup;
+            BuildReport report;
+            try
+            {
+                PrepareBuildInfo();
+                Directory.CreateDirectory(Path.GetDirectoryName(output));
+                report=BuildPipeline.BuildPlayer(new BuildPlayerOptions{scenes=new[]{scene},locationPathName=output,target=target,options=options});
+            }
+            finally
+            {
+                try
+                {
+                    if(buildInfoExisted)
+                    {
+                        File.WriteAllBytes(BuildInfoPath,previousBuildInfo);
+                        AssetDatabase.ImportAsset(BuildInfoPath,ImportAssetOptions.ForceSynchronousImport);
+                    }
+                    else if(File.Exists(BuildInfoPath))
+                    {
+                        AssetDatabase.DeleteAsset(BuildInfoPath);
+                    }
+                }
+                finally
+                {
+                    if(!preloadedBeforeBuild.SequenceEqual(PlayerSettings.GetPreloadedAssets()))PlayerSettings.SetPreloadedAssets(preloadedBeforeBuild);
+                    if(EditorUserBuildSettings.activeBuildTarget!=activeTargetBeforeBuild&&!EditorUserBuildSettings.SwitchActiveBuildTarget(activeTargetGroupBeforeBuild,activeTargetBeforeBuild))throw new InvalidOperationException("Failed to restore the previous active build target: "+activeTargetBeforeBuild+".");
+                }
+            }
+            if(report.summary.result!=BuildResult.Succeeded)throw new InvalidDataException(target+" build failed: "+report.summary.result);
+            Debug.Log(target+" validation build passed: "+output);
+        }
+        static void PrepareBuildInfo()
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(BuildInfoPath));
+            var buildInfoUtc=DateTime.UtcNow.ToString("O");
+            File.WriteAllText(BuildInfoPath,buildInfoUtc);
+            AssetDatabase.ImportAsset(BuildInfoPath,ImportAssetOptions.ForceSynchronousImport);
+            Debug.Log("Distributed BuildInfo UTC: "+buildInfoUtc);
+        }
         static InputActionProperty Action(string name,string type,string binding){var action=new InputAction(name,InputActionType.Value,expectedControlType:type);action.AddBinding(binding);return new InputActionProperty(action);}
         static InputActionReference Reference(InputActionAsset asset,string actionPath)
         {

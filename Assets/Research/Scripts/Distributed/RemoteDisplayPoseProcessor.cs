@@ -7,6 +7,7 @@ namespace QuestPianoMotion.Research.Distributed
         readonly IdentityHandPoseProcessor m_Identity=new IdentityHandPoseProcessor();readonly HandPoseFrame m_Remote;
         bool[] m_Chunks;long m_Callback=long.MinValue;int m_Received;bool m_Ready;
         public bool UseRemote;public bool Connected;
+        public void Reset(){m_Chunks=null;m_Callback=long.MinValue;m_Received=0;m_Ready=false;}
         public RemoteDisplayPoseProcessor(int jointCount){m_Remote=new HandPoseFrame(jointCount);}
         public void Accept(PosePacket p)
         {

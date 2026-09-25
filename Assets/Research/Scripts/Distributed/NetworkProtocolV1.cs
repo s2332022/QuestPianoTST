@@ -5,9 +5,10 @@ using UnityEngine;
 
 namespace QuestPianoMotion.Research.Distributed
 {
-    public enum PacketType : ushort { Pose=1, Midi=2, ClockSyncRequest=3, ClockSyncResponse=4, SessionControl=5, SessionAck=6, Heartbeat=7, Diagnostic=8, CorrectedPose=9, StartupHello=10, StartupAck=11 }
+    public enum PacketType : ushort { Pose=1, Midi=2, ClockSyncRequest=3, ClockSyncResponse=4, SessionControl=5, SessionAck=6, Heartbeat=7, Diagnostic=8, CorrectedPose=9, StartupHello=10, StartupAck=11, KeyboardStateSnapshot=12, KeyboardSnapshotDiagnostics=13 }
     public enum SessionCommand : byte { Start=1, Stop=2 }
     public enum SessionAckStatus : byte { Accepted=1, AlreadyApplied=2, Rejected=3 }
+    public enum HeartbeatState : byte { Idle=0, Recording=1, Disconnecting=2 }
 
     public readonly struct PacketHeader
     {
@@ -34,10 +35,57 @@ namespace QuestPianoMotion.Research.Distributed
     public struct DiagnosticPacket { public PacketHeader Header; public uint PosePackets,SendFailures,Dropped,QueueDepth; }
     public struct StartupHelloPacket { public PacketHeader Header; public uint InstanceId,ApplicationVersionHash,BuildIdHash; }
     public struct StartupAckPacket { public PacketHeader Header; public uint InstanceId; }
+    public struct KeyboardSnapshotDiagnosticsPacket
+    {
+        public PacketHeader Header;
+        public ulong Received,Applied,StaleDropped,SessionMismatchDropped,NoteRepairs,Cc64Repairs;
+        public uint LastGeneration;
+    }
+
+    /// <summary>Reusable decoded Snapshot storage. Allocate once per receiver.</summary>
+    public sealed class KeyboardStateSnapshotData
+    {
+        public const int ChannelCount=16,NoteCount=128,NoteBitsLength=256,SustainLength=16;
+        public readonly byte[] NoteBits=new byte[NoteBitsLength];
+        public readonly byte[] Sustain=new byte[SustainLength];
+        public PacketHeader Header { get; internal set; }
+        public uint Generation { get; internal set; }
+    }
+
+    public enum KeyboardSnapshotApplyRejection { None,SessionMismatch,Disconnected,StaleGeneration,InvalidState }
+
+    /// <summary>Validates and applies new, current-session keyboard snapshots without allocations.</summary>
+    public sealed class KeyboardStateSnapshotReceiver
+    {
+        bool m_HasGeneration;
+        uint m_LastGeneration;
+        public bool HasGeneration=>m_HasGeneration;
+        public uint LastGeneration=>m_LastGeneration;
+        public void Reset(){m_HasGeneration=false;m_LastGeneration=0;}
+
+        public bool TryApply(KeyboardStateSnapshotData snapshot,Guid currentSessionId,bool connected,
+            KeyboardStateTracker keyboard,out KeyboardSnapshotApplyRejection rejection,
+            out int noteRepairs,out int cc64Repairs)
+        {
+            rejection=KeyboardSnapshotApplyRejection.None;noteRepairs=0;cc64Repairs=0;
+            if(snapshot==null||keyboard==null){rejection=KeyboardSnapshotApplyRejection.InvalidState;return false;}
+            if(snapshot.Header.SessionId!=currentSessionId){rejection=KeyboardSnapshotApplyRejection.SessionMismatch;return false;}
+            if(!connected){rejection=KeyboardSnapshotApplyRejection.Disconnected;return false;}
+            if(m_HasGeneration&&!SequenceTracker.IsNewer(snapshot.Generation,m_LastGeneration))
+            {rejection=KeyboardSnapshotApplyRejection.StaleGeneration;return false;}
+            if(!keyboard.ApplySnapshot(snapshot.NoteBits,snapshot.Sustain,snapshot.Header.SenderTimestamp,
+                out noteRepairs,out cc64Repairs))
+            {rejection=KeyboardSnapshotApplyRejection.InvalidState;return false;}
+            m_HasGeneration=true;m_LastGeneration=snapshot.Generation;return true;
+        }
+    }
 
     public static class NetworkProtocolV1
     {
         public const uint Magic=0x51504D31; public const ushort Version=1; public const int HeaderSize=38;
+        public const int KeyboardStateSnapshotPayloadBytes=276;
+        public const int KeyboardStateSnapshotDatagramBytes=HeaderSize+KeyboardStateSnapshotPayloadBytes;
+        public const int KeyboardSnapshotDiagnosticsPayloadBytes=52;
         public const int MaximumDatagramBytes=1200; public const int MaximumJointsPerPosePacket=24; public const int MaximumPoseChunks=MaximumJointsPerPosePacket;
 
         public static bool TryReadHeader(byte[] data,int length,out PacketHeader header)
@@ -76,6 +124,57 @@ namespace QuestPianoMotion.Research.Distributed
         {
             packet=default;if(!TryReadHeader(data,length,out var h)||h.Type!=PacketType.Midi||h.PayloadLength!=18)return false;var o=HeaderSize;packet.Header=h;packet.EventIndex=ReadI64(data,ref o);packet.EventType=(MidiEventType)data[o++];packet.Channel=data[o++];packet.Note=data[o++];packet.Velocity=data[o++];packet.Control=data[o++];packet.Value=data[o++];packet.DeviceNameHash=ReadU32(data,ref o);if(packet.EventType==MidiEventType.NoteOn&&packet.Velocity==0)packet.EventType=MidiEventType.NoteOff;return Enum.IsDefined(typeof(MidiEventType),packet.EventType)&&packet.Channel>=1&&packet.Channel<=16;
         }
+        public static int WriteKeyboardStateSnapshot(byte[] data,uint sequence,double timestamp,Guid sessionId,
+            uint generation,KeyboardStateTracker keyboard)
+        {
+            if(data==null||keyboard==null||!IsFinite(timestamp)||data.Length<KeyboardStateSnapshotDatagramBytes)
+                throw new ArgumentException("Keyboard Snapshot datagram buffer or state is invalid.");
+            WriteHeader(data,PacketType.KeyboardStateSnapshot,sequence,timestamp,sessionId,KeyboardStateSnapshotPayloadBytes);
+            var o=HeaderSize;WriteU32(data,ref o,generation);var bitsOffset=o;
+            Array.Clear(data,o,KeyboardStateSnapshotPayloadBytes-4);
+            for(var channel=1;channel<=16;++channel)
+                for(var note=0;note<128;++note)
+                    if(keyboard.IsChannelNotePressed(channel,note))
+                    {
+                        var index=bitsOffset+(channel-1)*16+(note>>3);
+                        data[index]|=(byte)(1<<(note&7));
+                    }
+            var sustainOffset=bitsOffset+KeyboardStateSnapshotData.NoteBitsLength;
+            for(var channel=1;channel<=16;++channel)
+                data[sustainOffset+channel-1]=(byte)(keyboard.IsSustainActive(channel)?1:0);
+            return KeyboardStateSnapshotDatagramBytes;
+        }
+        public static bool TryReadKeyboardStateSnapshot(byte[] data,int length,KeyboardStateSnapshotData destination)
+        {
+            if(destination==null||!TryReadHeader(data,length,out var h)||h.Type!=PacketType.KeyboardStateSnapshot||
+                h.PayloadLength!=KeyboardStateSnapshotPayloadBytes||length!=KeyboardStateSnapshotDatagramBytes)return false;
+            var sustainOffset=HeaderSize+4+KeyboardStateSnapshotData.NoteBitsLength;
+            for(var channel=0;channel<16;++channel)if(data[sustainOffset+channel]>1)return false;
+            destination.Header=h;destination.Generation=ReadU32(data,HeaderSize);
+            Buffer.BlockCopy(data,HeaderSize+4,destination.NoteBits,0,KeyboardStateSnapshotData.NoteBitsLength);
+            Buffer.BlockCopy(data,sustainOffset,destination.Sustain,0,KeyboardStateSnapshotData.SustainLength);
+            return true;
+        }
+        public static int WriteKeyboardSnapshotDiagnostics(byte[] data,uint sequence,double timestamp,Guid sessionId,
+            ulong received,ulong applied,ulong staleDropped,ulong sessionMismatchDropped,ulong noteRepairs,
+            ulong cc64Repairs,uint lastGeneration)
+        {
+            if(data==null||!IsFinite(timestamp)||data.Length<HeaderSize+KeyboardSnapshotDiagnosticsPayloadBytes)
+                throw new ArgumentException("Keyboard Snapshot diagnostics datagram buffer is invalid.");
+            WriteHeader(data,PacketType.KeyboardSnapshotDiagnostics,sequence,timestamp,sessionId,KeyboardSnapshotDiagnosticsPayloadBytes);
+            var o=HeaderSize;WriteU64(data,ref o,received);WriteU64(data,ref o,applied);WriteU64(data,ref o,staleDropped);
+            WriteU64(data,ref o,sessionMismatchDropped);WriteU64(data,ref o,noteRepairs);WriteU64(data,ref o,cc64Repairs);
+            WriteU32(data,ref o,lastGeneration);return o;
+        }
+        public static bool TryReadKeyboardSnapshotDiagnostics(byte[] data,int length,out KeyboardSnapshotDiagnosticsPacket p)
+        {
+            p=default;if(!TryReadHeader(data,length,out var h)||h.Type!=PacketType.KeyboardSnapshotDiagnostics||
+                h.PayloadLength!=KeyboardSnapshotDiagnosticsPayloadBytes)return false;
+            var o=HeaderSize;p.Header=h;p.Received=ReadU64(data,ref o);p.Applied=ReadU64(data,ref o);
+            p.StaleDropped=ReadU64(data,ref o);p.SessionMismatchDropped=ReadU64(data,ref o);
+            p.NoteRepairs=ReadU64(data,ref o);p.Cc64Repairs=ReadU64(data,ref o);p.LastGeneration=ReadU32(data,ref o);
+            return true;
+        }
         public static int WriteClockRequest(byte[] data,uint sequence,double now,Guid sessionId,double t0){WriteHeader(data,PacketType.ClockSyncRequest,sequence,now,sessionId,8);var o=HeaderSize;WriteF64(data,ref o,t0);return o;}
         public static bool TryReadClockRequest(byte[] data,int length,out ClockSyncRequestPacket p){p=default;if(!TryReadHeader(data,length,out var h)||h.Type!=PacketType.ClockSyncRequest||h.PayloadLength!=8)return false;p.Header=h;p.PcT0=ReadF64(data,HeaderSize);return IsFinite(p.PcT0);}
         public static int WriteClockResponse(byte[] data,uint sequence,double now,Guid sessionId,double t0,double q1,double q2){WriteHeader(data,PacketType.ClockSyncResponse,sequence,now,sessionId,24);var o=HeaderSize;WriteF64(data,ref o,t0);WriteF64(data,ref o,q1);WriteF64(data,ref o,q2);return o;}
@@ -83,9 +182,9 @@ namespace QuestPianoMotion.Research.Distributed
         public static int WriteSessionControl(byte[] data,uint seq,double now,Guid sessionId,SessionCommand command,uint commandId){WriteHeader(data,PacketType.SessionControl,seq,now,sessionId,5);var o=HeaderSize;data[o++]=(byte)command;WriteU32(data,ref o,commandId);return o;}
         public static bool TryReadSessionControl(byte[] data,int length,out SessionControlPacket p){p=default;if(!TryReadHeader(data,length,out var h)||h.Type!=PacketType.SessionControl||h.PayloadLength!=5)return false;var o=HeaderSize;p.Header=h;p.Command=(SessionCommand)data[o++];p.CommandId=ReadU32(data,ref o);return Enum.IsDefined(typeof(SessionCommand),p.Command);}
         public static int WriteSessionAck(byte[] data,uint seq,double now,Guid sessionId,SessionCommand command,SessionAckStatus status,uint commandId){WriteHeader(data,PacketType.SessionAck,seq,now,sessionId,6);var o=HeaderSize;data[o++]=(byte)command;data[o++]=(byte)status;WriteU32(data,ref o,commandId);return o;}
-        public static bool TryReadSessionAck(byte[] data,int length,out SessionAckPacket p){p=default;if(!TryReadHeader(data,length,out var h)||h.Type!=PacketType.SessionAck||h.PayloadLength!=6)return false;var o=HeaderSize;p.Header=h;p.Command=(SessionCommand)data[o++];p.Status=(SessionAckStatus)data[o++];p.CommandId=ReadU32(data,ref o);return true;}
+        public static bool TryReadSessionAck(byte[] data,int length,out SessionAckPacket p){p=default;if(!TryReadHeader(data,length,out var h)||h.Type!=PacketType.SessionAck||h.PayloadLength!=6)return false;var o=HeaderSize;p.Header=h;p.Command=(SessionCommand)data[o++];p.Status=(SessionAckStatus)data[o++];p.CommandId=ReadU32(data,ref o);return Enum.IsDefined(typeof(SessionCommand),p.Command)&&Enum.IsDefined(typeof(SessionAckStatus),p.Status);}
         public static int WriteHeartbeat(byte[] data,uint seq,double now,Guid sessionId,uint lastSequence,byte state,double offset=0d,double rtt=0d){WriteHeader(data,PacketType.Heartbeat,seq,now,sessionId,21);var o=HeaderSize;WriteU32(data,ref o,lastSequence);data[o++]=state;WriteF64(data,ref o,offset);WriteF64(data,ref o,rtt);return o;}
-        public static bool TryReadHeartbeat(byte[] data,int length,out HeartbeatPacket p){p=default;if(!TryReadHeader(data,length,out var h)||h.Type!=PacketType.Heartbeat||h.PayloadLength!=21)return false;var o=HeaderSize;p.Header=h;p.LastReceivedSequence=ReadU32(data,ref o);p.State=data[o++];p.ClockOffset=ReadF64(data,ref o);p.Rtt=ReadF64(data,ref o);return IsFinite(p.ClockOffset)&&IsFinite(p.Rtt)&&p.Rtt>=0d;}
+        public static bool TryReadHeartbeat(byte[] data,int length,out HeartbeatPacket p){p=default;if(!TryReadHeader(data,length,out var h)||h.Type!=PacketType.Heartbeat||h.PayloadLength!=21)return false;var o=HeaderSize;p.Header=h;p.LastReceivedSequence=ReadU32(data,ref o);p.State=data[o++];p.ClockOffset=ReadF64(data,ref o);p.Rtt=ReadF64(data,ref o);return p.State<=(byte)HeartbeatState.Disconnecting&&IsFinite(p.ClockOffset)&&IsFinite(p.Rtt)&&p.Rtt>=0d;}
         public static int WriteDiagnostic(byte[] data,uint seq,double now,Guid sessionId,uint packets,uint failures,uint dropped,uint depth){WriteHeader(data,PacketType.Diagnostic,seq,now,sessionId,16);var o=HeaderSize;WriteU32(data,ref o,packets);WriteU32(data,ref o,failures);WriteU32(data,ref o,dropped);WriteU32(data,ref o,depth);return o;}
         public static bool TryReadDiagnostic(byte[] data,int length,out DiagnosticPacket p){p=default;if(!TryReadHeader(data,length,out var h)||h.Type!=PacketType.Diagnostic||h.PayloadLength!=16)return false;var o=HeaderSize;p.Header=h;p.PosePackets=ReadU32(data,ref o);p.SendFailures=ReadU32(data,ref o);p.Dropped=ReadU32(data,ref o);p.QueueDepth=ReadU32(data,ref o);return true;}
         public static int WriteStartupHello(byte[] data,uint seq,double now,Guid sessionId,uint instanceId,uint applicationVersionHash,uint buildIdHash){WriteHeader(data,PacketType.StartupHello,seq,now,sessionId,12);var o=HeaderSize;WriteU32(data,ref o,instanceId);WriteU32(data,ref o,applicationVersionHash);WriteU32(data,ref o,buildIdHash);return o;}
