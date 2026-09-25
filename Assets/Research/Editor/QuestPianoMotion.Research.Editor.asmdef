@@ -6,7 +6,8 @@
     "Unity.InputSystem",
     "Unity.XR.CoreUtils",
     "Unity.XR.Interaction.Toolkit",
-    "Unity.UGUI"
+    "Unity.UGUI",
+    "Unity.XR.ARFoundation"
   ],
   "includePlatforms": [
     "Editor"

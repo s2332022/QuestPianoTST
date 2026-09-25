@@ -6,6 +6,7 @@ using UnityEngine.Rendering;
 namespace QuestPianoMotion.Research
 {
     public enum PianoKeyVisualState { Rest, Pressed }
+    public enum KeyboardDisplayMode { Research13Keys, Full88Keys }
 
     public sealed class PianoKeyView
     {
@@ -13,6 +14,7 @@ namespace QuestPianoMotion.Research
         readonly Renderer m_Renderer;
         readonly MaterialPropertyBlock m_Block = new MaterialPropertyBlock();
         readonly Color m_RestColor;
+        float m_Opacity = 1f;
         public readonly int MidiNoteNumber;
         public readonly bool IsBlack;
         public readonly Vector3 RestLocalPosition;
@@ -21,6 +23,7 @@ namespace QuestPianoMotion.Research
         public int Velocity { get; private set; }
         public PianoKeyVisualState VisualState { get; private set; }
         public Renderer Renderer => m_Renderer;
+        public float Opacity => m_Opacity;
 
         public PianoKeyView(int note, bool black, Transform transform, Renderer renderer, Color restColor)
         {
@@ -42,11 +45,18 @@ namespace QuestPianoMotion.Research
             m_Transform.localPosition = pressed ? PressedLocalPosition : RestLocalPosition;
             var amount = Velocity / 127f;
             var color = pressed ? Color.Lerp(m_RestColor, new Color(0.1f, 0.7f, 1f), 0.35f + amount * 0.65f) : m_RestColor;
+            color.a = m_Opacity;
             m_Renderer.GetPropertyBlock(m_Block);
             m_Block.SetColor("_BaseColor", color);
             m_Block.SetColor("_Color", color);
             m_Block.SetColor("_EmissionColor", pressed ? color * (0.2f + amount * 1.8f) : Color.black);
             m_Renderer.SetPropertyBlock(m_Block);
+        }
+
+        public void SetOpacity(float opacity)
+        {
+            m_Opacity = opacity;
+            Apply(Pressed, Velocity);
         }
     }
 
@@ -60,12 +70,22 @@ namespace QuestPianoMotion.Research
         public const float BaseWhiteKeyWidthMeters = 0.03384f;
         public const float BaseWhiteKeyDepthMeters = 0.160f;
         public const float BaseWhiteKeyHeightMeters = 0.018f;
-        readonly Dictionary<int, PianoKeyView> m_Keys = new Dictionary<int, PianoKeyView>(13);
+        readonly Dictionary<int, PianoKeyView> m_Keys = new Dictionary<int, PianoKeyView>(88);
         readonly KeyboardStateTracker m_State = new KeyboardStateTracker();
         Material m_SharedMaterial;
+        Material m_TransparentMaterial;
+        bool m_Minimal;
+        bool m_CalibrationTransparency;
+        KeyboardDisplayMode m_Mode = KeyboardDisplayMode.Full88Keys;
 
         public event Action<KeyboardStateChange> StateChanged;
         public KeyboardStateTracker State => m_State;
+        public KeyboardDisplayMode DisplayMode => m_Mode;
+        public int MinNote => m_Mode == KeyboardDisplayMode.Research13Keys ? FirstNote : 21;
+        public int MaxNote => m_Mode == KeyboardDisplayMode.Research13Keys ? LastNote : 108;
+        public int KeyCount => MaxNote - MinNote + 1;
+        public bool TryGetKey(int note, out PianoKeyView key) => m_Keys.TryGetValue(note, out key);
+        public bool CalibrationTransparency => m_CalibrationTransparency;
         public Transform KeyboardRoot { get; private set; }
         public Transform KeyboardGeometry { get; private set; }
         public static Vector3 BaseGeometryOriginOffsetMeters =>
@@ -85,8 +105,27 @@ namespace QuestPianoMotion.Research
 
         public void ApplyMidi(in MidiMessage message) => m_State.Apply(in message);
 
+        public void SetCalibrationTransparency(bool enabled)
+        {
+            if (m_CalibrationTransparency == enabled) return;
+            if (enabled && m_TransparentMaterial == null)
+                m_TransparentMaterial = Resources.Load<Material>("CalibrationKeyTransparent");
+            if (enabled && m_TransparentMaterial == null)
+            {
+                Debug.LogError("Calibration transparent key material is missing.", this);
+                return;
+            }
+            m_CalibrationTransparency = enabled;
+            foreach (var key in m_Keys.Values)
+            {
+                key.Renderer.sharedMaterial = enabled ? m_TransparentMaterial : m_SharedMaterial;
+                key.SetOpacity(enabled ? 0.35f : 1f);
+            }
+        }
+
         public void ConfigureMinimal(Transform host)
         {
+            m_Minimal = true;
             if (KeyboardRoot != null && host != null)
             {
                 KeyboardRoot.SetParent(host, false);
@@ -106,7 +145,11 @@ namespace QuestPianoMotion.Research
                 renderer.lightProbeUsage = LightProbeUsage.Off;
                 renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
                 var collider = renderer.GetComponent<Collider>();
-                if (collider != null) Destroy(collider);
+                if (collider != null)
+                {
+                    if (Application.isPlaying) Destroy(collider);
+                    else DestroyImmediate(collider);
+                }
             }
         }
 
@@ -145,29 +188,54 @@ namespace QuestPianoMotion.Research
             StateChanged?.Invoke(change);
         }
 
+        public void SetDisplayMode(KeyboardDisplayMode mode)
+        {
+            if (mode != KeyboardDisplayMode.Research13Keys && mode != KeyboardDisplayMode.Full88Keys)
+                mode = KeyboardDisplayMode.Full88Keys;
+            if (m_Mode == mode && KeyboardGeometry != null) return;
+            m_Mode = mode;
+            if (KeyboardGeometry != null) BuildKeyboard();
+        }
+
         void BuildKeyboard()
         {
-            KeyboardRoot = new GameObject("Virtual Piano Keyboard C4-C5").transform;
-            KeyboardRoot.SetParent(transform, false);
-            KeyboardRoot.localPosition = Vector3.zero;
-            KeyboardRoot.localScale = Vector3.one;
-            KeyboardGeometry = new GameObject("Keyboard Geometry").transform;
-            KeyboardGeometry.SetParent(KeyboardRoot, false);
-            KeyboardGeometry.localPosition = BaseGeometryOriginOffsetMeters;
-            KeyboardGeometry.localScale = Vector3.one;
-            var shader = Resources.Load<Shader>("ResearchUnlit") ?? Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
-            m_SharedMaterial = new Material(shader) { enableInstancing = true };
+            if (KeyboardRoot == null)
+            {
+                KeyboardRoot = new GameObject("Virtual Piano Keyboard C4").transform;
+                KeyboardRoot.SetParent(transform, false);
+                KeyboardRoot.localPosition = Vector3.zero;
+                KeyboardRoot.localScale = Vector3.one;
+                KeyboardGeometry = new GameObject("Keyboard Geometry").transform;
+                KeyboardGeometry.SetParent(KeyboardRoot, false);
+                KeyboardGeometry.localPosition = BaseGeometryOriginOffsetMeters;
+                KeyboardGeometry.localScale = Vector3.one;
+            }
+            else
+            {
+                m_Keys.Clear();
+                for (var i = KeyboardGeometry.childCount - 1; i >= 0; --i)
+                {
+                    var oldKey = KeyboardGeometry.GetChild(i).gameObject;
+                    oldKey.SetActive(false);
+                    oldKey.transform.SetParent(null, false);
+                    if (Application.isPlaying) Destroy(oldKey);
+                    else DestroyImmediate(oldKey);
+                }
+            }
+            if (m_SharedMaterial == null)
+            {
+                var shader = Resources.Load<Shader>("ResearchUnlit") ?? Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+                m_SharedMaterial = new Material(shader) { enableInstancing = true };
+            }
             const float blackKeyHeightMeters = 0.025f;
-            var whiteIndex = 0;
-            for (var note = FirstNote; note <= LastNote; ++note)
+            for (var note = MinNote; note <= MaxNote; ++note)
             {
                 var black = IsBlack(note);
                 var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 go.name = $"Key {note} {(black ? "Black" : "White")}";
                 go.transform.SetParent(KeyboardGeometry, false);
-                var x = black
-                    ? (whiteIndex - 0.5f) * BaseWhiteKeyPitchMeters
-                    : whiteIndex * BaseWhiteKeyPitchMeters;
+                var whiteIndex = WhiteIndexFromC4(black ? note + 1 : note);
+                var x = (whiteIndex - (black ? 0.5f : 0f)) * BaseWhiteKeyPitchMeters;
                 var y = black ? 0.012f : -BaseWhiteKeyHeightMeters * 0.5f;
                 var z = black ? 0.035f : 0f;
                 go.transform.localPosition = new Vector3(x, y, z);
@@ -177,11 +245,33 @@ namespace QuestPianoMotion.Research
                     : new Vector3(BaseWhiteKeyWidthMeters, BaseWhiteKeyHeightMeters,
                         BaseWhiteKeyDepthMeters);
                 var renderer = go.GetComponent<Renderer>();
-                renderer.sharedMaterial = m_SharedMaterial;
+                renderer.sharedMaterial = m_CalibrationTransparency ? m_TransparentMaterial : m_SharedMaterial;
+                if (m_Minimal)
+                {
+                    renderer.shadowCastingMode = ShadowCastingMode.Off;
+                    renderer.receiveShadows = false;
+                    renderer.lightProbeUsage = LightProbeUsage.Off;
+                    renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+                    var collider = go.GetComponent<Collider>();
+                    if (Application.isPlaying) Destroy(collider);
+                    else DestroyImmediate(collider);
+                }
                 var color = black ? new Color(0.025f, 0.025f, 0.03f) : new Color(0.88f, 0.88f, 0.84f);
-                m_Keys.Add(note, new PianoKeyView(note, black, go.transform, renderer, color));
-                if (!black) ++whiteIndex;
+                var key = new PianoKeyView(note, black, go.transform, renderer, color);
+                m_Keys.Add(note, key);
+                if (m_State.IsPressed(note)) key.Apply(true, m_State.Velocity(note));
+                if (m_CalibrationTransparency) key.SetOpacity(0.35f);
             }
+        }
+
+        static int WhiteIndexFromC4(int note)
+        {
+            var index = 0;
+            if (note >= 60)
+                for (var n = 60; n < note; ++n) { if (!IsBlack(n)) ++index; }
+            else
+                for (var n = note; n < 60; ++n) { if (!IsBlack(n)) --index; }
+            return index;
         }
 
         static bool IsBlack(int note)

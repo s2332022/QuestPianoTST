@@ -73,6 +73,39 @@ namespace QuestPianoMotion.Research.Tests
         void CompleteB() { m_Manager.CaptureB(); Sample(Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters); }
         void CompleteC() { m_Manager.CaptureC(); Sample(Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters); }
 
+        [Test]
+        public void PassthroughSession_StaysRequestedThroughAAndBThenEndsAfterC()
+        {
+            var started = 0;
+            var ended = 0;
+            m_Manager.CaptureSessionStarted += () => ++started;
+            m_Manager.CaptureSessionEnded += () => ++ended;
+            CompleteA();
+            Assert.That((started, ended), Is.EqualTo((1, 0)));
+            CompleteB();
+            Assert.That((started, ended), Is.EqualTo((1, 0)));
+            CompleteC();
+            Assert.That((started, ended), Is.EqualTo((1, 1)));
+        }
+
+        [Test]
+        public void PassthroughSession_FailedPointKeepsRequestAndCancelRestores()
+        {
+            var started = 0;
+            var ended = 0;
+            m_Manager.CaptureSessionStarted += () => ++started;
+            m_Manager.CaptureSessionEnded += () => ++ended;
+            CompleteA();
+            m_Manager.CaptureB();
+            Frame(Vector3.zero, tracked: false);
+            Tick(3.01);
+            Assert.That((started, ended), Is.EqualTo((1, 0)));
+            Assert.That(m_Manager.CapturedPointCount, Is.EqualTo(1));
+            m_Manager.CancelCapture();
+            Assert.That((started, ended), Is.EqualTo((1, 1)));
+            Assert.That(m_Manager.CapturedPointCount, Is.EqualTo(1));
+        }
+
         [Test] public void CaptureAButtonOnlyArms() { m_Manager.CaptureA(); Assert.That(m_Manager.State, Is.EqualTo(PianoCalibrationManager.CaptureState.ArmedA)); Assert.That(m_Manager.CapturedPointCount, Is.Zero); }
         [Test]
         public void CaptureInstructionsUseTheFixedC4AndC5Corners()

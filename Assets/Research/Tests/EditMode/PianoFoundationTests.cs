@@ -31,7 +31,7 @@ namespace QuestPianoMotion.Research.Tests
             Assert.That(host.transform.childCount, Is.EqualTo(1));
             var geometry = keyboard.KeyboardRoot.Find("Keyboard Geometry");
             Assert.That(geometry, Is.Not.Null);
-            Assert.That(geometry.childCount, Is.EqualTo(13));
+            Assert.That(geometry.childCount, Is.EqualTo(88));
             Assert.That(geometry.Find("Key 60 White"), Is.Not.Null);
             Assert.That(geometry.Find("Key 72 White"), Is.Not.Null);
             Assert.That(geometry.Find("Key 61 Black"), Is.Not.Null);

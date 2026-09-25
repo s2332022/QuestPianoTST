@@ -65,7 +65,7 @@ namespace QuestPianoMotion.Research.Tests
         }
 
         [UnityTest]
-        public IEnumerator VirtualPiano_CreatesOnlyOneThirteenKeyRoot()
+        public IEnumerator VirtualPiano_CreatesOnlyOneFullKeyboardRoot()
         {
             var pianoHost = new GameObject("Piano Root");
             var runtime = new GameObject("Research Runtime", typeof(VirtualPianoKeyboard));
@@ -78,7 +78,7 @@ namespace QuestPianoMotion.Research.Tests
             Assert.That(keyboard.KeyboardRoot.childCount, Is.EqualTo(1));
             var geometry = keyboard.KeyboardRoot.Find("Keyboard Geometry");
             Assert.That(geometry, Is.Not.Null);
-            Assert.That(geometry.childCount, Is.EqualTo(13));
+            Assert.That(geometry.childCount, Is.EqualTo(88));
             Object.Destroy(runtime);
             Object.Destroy(pianoHost);
             yield return null;

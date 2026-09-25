@@ -23,6 +23,8 @@ namespace QuestPianoMotion.Research.Distributed
         DistributedSettings m_Settings;
         PianoCalibrationManager m_Calibration;
         MinimalHandVisualizer m_Visualizer;
+        VirtualPianoKeyboard m_Keyboard;
+        TMP_Text m_KeyboardModeLabel;
         Canvas m_Canvas;
         TMP_Text m_Status;
         TMP_Text m_CalibrationStatus;
@@ -72,6 +74,7 @@ namespace QuestPianoMotion.Research.Distributed
             m_Settings = FindAnyObjectByType<DistributedSettings>();
             m_Calibration = FindAnyObjectByType<PianoCalibrationManager>();
             m_Visualizer = FindAnyObjectByType<MinimalHandVisualizer>();
+            m_Keyboard = FindAnyObjectByType<VirtualPianoKeyboard>();
             m_PlacementGate = new QuestHmdPoseGate(Time.realtimeSinceStartupAsDouble);
             Build();
             StartCoroutine(PlaceWhenHeadPoseIsReady());
@@ -190,6 +193,8 @@ namespace QuestPianoMotion.Research.Distributed
             m_Ip.onSelect.AddListener(_ => OpenIpKeyboard());
             m_DefaultIp = DistributedSettings.DefaultPcIpAddress;
             var savedIp = LoadSavedIp();
+            if (m_Keyboard != null)
+                m_Keyboard.SetDisplayMode(LoadSavedDisplayMode());
             if (m_Settings != null)
                 m_Settings.pcIpAddress = savedIp ?? m_DefaultIp;
             m_Ip.text = m_Settings != null ? m_Settings.pcIpAddress : m_DefaultIp;
@@ -219,6 +224,9 @@ namespace QuestPianoMotion.Research.Distributed
                 () => m_Visualizer?.UseGameObjectsDiagnostic());
             CreateButton("HAND GPU", new Vector2(400, -610), 150,
                 () => m_Visualizer?.UseGpuInstanced());
+            m_KeyboardModeLabel = CreateButton("KEYBOARD: 88 KEYS", new Vector2(560, -610), 160,
+                ToggleKeyboardMode);
+            UpdateKeyboardModeLabel();
 
             m_HandInputDiagnostic = CreateText("Hand Input Diagnostic", transform,
                 "Pointer: NONE\nHand: RIGHT\nPinch: OPEN\nDistance: 0.0 mm\nTarget: NONE\nClicks: 0",
@@ -479,6 +487,56 @@ namespace QuestPianoMotion.Research.Distributed
         sealed class SavedIp
         {
             public string ip;
+            public string keyboardMode;
+        }
+
+        public static KeyboardDisplayMode ParseSavedDisplayMode(string json)
+        {
+            try
+            {
+                var saved = JsonUtility.FromJson<SavedIp>(json);
+                return saved != null &&
+                    Enum.TryParse(saved.keyboardMode, out KeyboardDisplayMode mode) &&
+                    (mode == KeyboardDisplayMode.Research13Keys || mode == KeyboardDisplayMode.Full88Keys)
+                    ? mode : KeyboardDisplayMode.Full88Keys;
+            }
+            catch (Exception) { return KeyboardDisplayMode.Full88Keys; }
+        }
+
+        public static string SerializeSavedSettings(string ip, KeyboardDisplayMode mode) =>
+            JsonUtility.ToJson(new SavedIp { ip = ip, keyboardMode = mode.ToString() }, true);
+
+        KeyboardDisplayMode LoadSavedDisplayMode()
+        {
+            return LoadSavedDisplayModeFromPath(IpSavePath);
+        }
+
+        public static KeyboardDisplayMode LoadSavedDisplayModeFromPath(string path)
+        {
+            try { return File.Exists(path) ? ParseSavedDisplayMode(File.ReadAllText(path)) : KeyboardDisplayMode.Full88Keys; }
+            catch (Exception) { return KeyboardDisplayMode.Full88Keys; }
+        }
+
+        public static void SaveSettingsToPath(string path, string ip, KeyboardDisplayMode mode)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            File.WriteAllText(path, SerializeSavedSettings(ip, mode));
+        }
+
+        void ToggleKeyboardMode()
+        {
+            if (m_Keyboard == null) return;
+            m_Keyboard.SetDisplayMode(m_Keyboard.DisplayMode == KeyboardDisplayMode.Full88Keys
+                ? KeyboardDisplayMode.Research13Keys : KeyboardDisplayMode.Full88Keys);
+            UpdateKeyboardModeLabel();
+            SaveIp(m_Settings != null ? m_Settings.pcIpAddress : m_DefaultIp);
+        }
+
+        void UpdateKeyboardModeLabel()
+        {
+            if (m_KeyboardModeLabel != null && m_Keyboard != null)
+                m_KeyboardModeLabel.text = m_Keyboard.DisplayMode == KeyboardDisplayMode.Full88Keys
+                    ? "KEYBOARD: 88 KEYS" : "KEYBOARD: 13 KEYS";
         }
 
         string LoadSavedIp()
@@ -501,9 +559,8 @@ namespace QuestPianoMotion.Research.Distributed
         {
             try
             {
-                var directory = Path.GetDirectoryName(IpSavePath);
-                Directory.CreateDirectory(directory);
-                File.WriteAllText(IpSavePath, JsonUtility.ToJson(new SavedIp { ip = ip }, true));
+                SaveSettingsToPath(IpSavePath, ip,
+                    m_Keyboard != null ? m_Keyboard.DisplayMode : LoadSavedDisplayMode());
             }
             catch (Exception e)
             {
@@ -511,7 +568,7 @@ namespace QuestPianoMotion.Research.Distributed
             }
         }
 
-        void CreateButton(string label, Vector2 position, float width, UnityEngine.Events.UnityAction action)
+        TMP_Text CreateButton(string label, Vector2 position, float width, UnityEngine.Events.UnityAction action)
         {
             var go = new GameObject(label, typeof(RectTransform), typeof(Image), typeof(Button));
             go.layer = gameObject.layer;
@@ -531,6 +588,7 @@ namespace QuestPianoMotion.Research.Distributed
             button.interactable = true;
             button.targetGraphic = image;
             button.onClick.AddListener(action);
+            return text;
         }
 
         void CreateHandCursor()

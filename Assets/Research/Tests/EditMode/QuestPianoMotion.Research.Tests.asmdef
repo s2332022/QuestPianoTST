@@ -7,7 +7,8 @@
     "Unity.XR.CoreUtils",
     "Unity.TextMeshPro",
     "Unity.InputSystem",
-    "Unity.XR.Interaction.Toolkit"
+    "Unity.XR.Interaction.Toolkit",
+    "Unity.XR.ARFoundation"
   ],
   "includePlatforms": [
     "Editor"

@@ -9,6 +9,7 @@ using UnityEngine.XR.Interaction.Toolkit;
 using UnityEngine.XR.Interaction.Toolkit.Inputs;
 using UnityEngine.XR.Interaction.Toolkit.Interactors;
 using UnityEngine.XR.Interaction.Toolkit.UI;
+using UnityEngine.XR.ARFoundation;
 
 namespace QuestPianoMotion.Research.Tests
 {
@@ -21,6 +22,12 @@ namespace QuestPianoMotion.Research.Tests
             try
             {
                 var roots = scene.GetRootGameObjects();
+                var camera = Components<Camera>(roots).Single(x => x.CompareTag("MainCamera"));
+                var passthroughManagers = camera.GetComponents<ARCameraManager>();
+                Assert.That(passthroughManagers, Has.Length.EqualTo(1));
+                Assert.That(passthroughManagers[0].enabled, Is.False);
+                Assert.That(camera.backgroundColor.a, Is.Zero);
+                Assert.That(roots.Any(x => x.name == "Passthrough"), Is.False);
                 var eventSystems = Components<EventSystem>(roots);
                 var interactionManagers = Components<XRInteractionManager>(roots);
                 var inputManagers = Components<InputActionManager>(roots);

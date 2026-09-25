@@ -36,6 +36,9 @@ namespace QuestPianoMotion.Research
         int m_PointCount;
 
         public event Action<PianoCalibrationData> CalibrationChanged;
+        public event Action CaptureSessionStarted;
+        public event Action CaptureSessionEnded;
+        bool m_CaptureSessionActive;
         public PianoCalibrationData LastCalibrationAttempt { get; private set; } = new PianoCalibrationData();
         public PianoCalibrationData LastValidCalibration { get; private set; }
         public PianoCalibrationData CurrentAppliedCalibration { get; private set; }
@@ -90,13 +93,14 @@ namespace QuestPianoMotion.Research
 
         public void CancelCapture()
         {
-            if (State == CaptureState.Idle) return;
+            if (State == CaptureState.Idle && !IsCapturing && !m_CaptureSessionActive) return;
             State = CaptureState.Idle;
             Array.Clear(m_Samples, 0, m_SampleCount);
             m_SampleCount = 0;
             m_LastSampleCallback = 0;
-            IsCapturing = m_PointCount > 0 && m_PointCount < 3;
+            IsCapturing = false;
             StatusText = "Capture cancelled";
+            EndCaptureSession();
         }
 
         void OnDisable() => CancelCapture();
@@ -107,6 +111,7 @@ namespace QuestPianoMotion.Research
         void Arm(int point)
         {
             if (State != CaptureState.Idle) return;
+            StartCaptureSession();
             State = (CaptureState)((int)CaptureState.ArmedA + point);
             m_ArmedAt = Time.unscaledTimeAsDouble;
             m_CountdownNumber = 3;
@@ -218,6 +223,7 @@ namespace QuestPianoMotion.Research
             CurrentAppliedCalibration = candidate;
             StatusText = CalibrationSummary(candidate);
             CalibrationChanged?.Invoke(candidate);
+            EndCaptureSession();
         }
 
         float Median(float[] sorted)
@@ -256,6 +262,7 @@ namespace QuestPianoMotion.Research
             CancelCapture();
             m_PointCount = 0;
             IsCapturing = true;
+            StartCaptureSession();
             StatusText = $"Capture A ({PointInstruction(0)})";
         }
 
@@ -283,6 +290,7 @@ namespace QuestPianoMotion.Research
                 CurrentAppliedCalibration = result;
                 StatusText = CalibrationSummary(result);
                 CalibrationChanged?.Invoke(CurrentAppliedCalibration);
+                EndCaptureSession();
                 return true;
             }
             m_PointCount = 2;
@@ -388,6 +396,20 @@ namespace QuestPianoMotion.Research
         void RecordAttemptFailure(string message)
         {
             LastCalibrationAttempt = new PianoCalibrationData { validationMessage = message };
+        }
+
+        void StartCaptureSession()
+        {
+            if (m_CaptureSessionActive) return;
+            m_CaptureSessionActive = true;
+            CaptureSessionStarted?.Invoke();
+        }
+
+        void EndCaptureSession()
+        {
+            if (!m_CaptureSessionActive) return;
+            m_CaptureSessionActive = false;
+            CaptureSessionEnded?.Invoke();
         }
     }
 }

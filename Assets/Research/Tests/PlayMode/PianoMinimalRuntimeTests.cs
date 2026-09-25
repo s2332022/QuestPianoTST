@@ -47,7 +47,7 @@ namespace QuestPianoMotion.Research.Tests
             Assert.That(keyboard.KeyboardRoot.childCount, Is.EqualTo(1));
             var geometry = keyboard.KeyboardRoot.Find("Keyboard Geometry");
             Assert.That(geometry, Is.Not.Null);
-            Assert.That(geometry.childCount, Is.EqualTo(13));
+            Assert.That(geometry.childCount, Is.EqualTo(88));
             Assert.That(keyboard.KeyboardRoot.GetComponentsInChildren<Collider>(true), Is.Empty);
             Assert.That(keyboard.KeyboardRoot.GetComponentsInChildren<Rigidbody>(true), Is.Empty);
             Assert.That(keyboard.KeyboardRoot.GetComponentsInChildren<AudioSource>(true), Is.Empty);

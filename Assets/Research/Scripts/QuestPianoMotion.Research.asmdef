@@ -8,7 +8,8 @@
     "Unity.XR.Interaction.Toolkit",
     "Unity.InputSystem",
     "Unity.TextMeshPro",
-    "Unity.UGUI"
+    "Unity.UGUI",
+    "Unity.XR.ARFoundation"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],
