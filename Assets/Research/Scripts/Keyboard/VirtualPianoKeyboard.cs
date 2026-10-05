@@ -72,6 +72,10 @@ namespace QuestPianoMotion.Research
         public const float BaseWhiteKeyHeightMeters = 0.018f;
         readonly Dictionary<int, PianoKeyView> m_Keys = new Dictionary<int, PianoKeyView>(88);
         readonly KeyboardStateTracker m_State = new KeyboardStateTracker();
+        const float WhiteKeySeparatorWidthMeters = 0.0012f;
+        const float WhiteKeySeparatorHeightMeters = 0.0002f;
+        const float WhiteKeySeparatorCenterAboveTopMeters = 0.00025f;
+        readonly List<Renderer> m_WhiteKeySeparators = new List<Renderer>(51);
         Material m_SharedMaterial;
         Material m_TransparentMaterial;
         bool m_Minimal;
@@ -121,6 +125,7 @@ namespace QuestPianoMotion.Research
                 key.Renderer.sharedMaterial = enabled ? m_TransparentMaterial : m_SharedMaterial;
                 key.SetOpacity(enabled ? 0.35f : 1f);
             }
+            UpdateWhiteKeySeparatorVisuals();
         }
 
         public void ConfigureMinimal(Transform host)
@@ -178,6 +183,7 @@ namespace QuestPianoMotion.Research
                 BaseWhiteKeyWidthMeters * scaleX * 0.5f,
                 0f,
                 BaseWhiteKeyDepthMeters * scaleZ * 0.5f);
+            UpdateWhiteKeySeparatorVisuals();
             return true;
         }
 
@@ -213,6 +219,7 @@ namespace QuestPianoMotion.Research
             else
             {
                 m_Keys.Clear();
+                m_WhiteKeySeparators.Clear();
                 for (var i = KeyboardGeometry.childCount - 1; i >= 0; --i)
                 {
                     var oldKey = KeyboardGeometry.GetChild(i).gameObject;
@@ -228,6 +235,7 @@ namespace QuestPianoMotion.Research
                 m_SharedMaterial = new Material(shader) { enableInstancing = true };
             }
             const float blackKeyHeightMeters = 0.025f;
+            var hasPreviousWhiteKey = false;
             for (var note = MinNote; note <= MaxNote; ++note)
             {
                 var black = IsBlack(note);
@@ -259,8 +267,57 @@ namespace QuestPianoMotion.Research
                 var color = black ? new Color(0.025f, 0.025f, 0.03f) : new Color(0.88f, 0.88f, 0.84f);
                 var key = new PianoKeyView(note, black, go.transform, renderer, color);
                 m_Keys.Add(note, key);
+                if (!black)
+                {
+                    if (hasPreviousWhiteKey) CreateWhiteKeySeparator(go.transform);
+                    hasPreviousWhiteKey = true;
+                }
                 if (m_State.IsPressed(note)) key.Apply(true, m_State.Velocity(note));
                 if (m_CalibrationTransparency) key.SetOpacity(0.35f);
+            }
+            UpdateWhiteKeySeparatorVisuals();
+        }
+
+        void CreateWhiteKeySeparator(Transform whiteKey)
+        {
+            // KeyboardGeometry-local metres, converted into the scaled white key's local space.
+            // Mesh components only: never create a Collider, interaction component or PianoKeyView.
+            var separator = new GameObject("White Key Separator", typeof(MeshFilter), typeof(MeshRenderer));
+            separator.layer = 2; // Ignore Raycast; excluded from interaction queries.
+            separator.transform.SetParent(whiteKey, false);
+            separator.transform.localPosition = new Vector3(
+                -BaseWhiteKeyPitchMeters * 0.5f / BaseWhiteKeyWidthMeters,
+                (BaseWhiteKeyHeightMeters * 0.5f + WhiteKeySeparatorCenterAboveTopMeters) /
+                    BaseWhiteKeyHeightMeters,
+                0f);
+            separator.transform.localScale = new Vector3(
+                WhiteKeySeparatorWidthMeters / BaseWhiteKeyWidthMeters,
+                WhiteKeySeparatorHeightMeters / BaseWhiteKeyHeightMeters,
+                1f);
+            separator.GetComponent<MeshFilter>().sharedMesh = whiteKey.GetComponent<MeshFilter>().sharedMesh;
+            var renderer = separator.GetComponent<MeshRenderer>();
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            renderer.lightProbeUsage = LightProbeUsage.Off;
+            renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+            m_WhiteKeySeparators.Add(renderer);
+        }
+
+        void UpdateWhiteKeySeparatorVisuals()
+        {
+            var color = new Color(0.18f, 0.18f, 0.18f, m_CalibrationTransparency ? 0.35f : 1f);
+            var block = new MaterialPropertyBlock();
+            block.SetColor("_BaseColor", color);
+            block.SetColor("_Color", color);
+            foreach (var renderer in m_WhiteKeySeparators)
+            {
+                // Compensate only the strip width to keep it 1.2 mm after calibration.
+                var scale = renderer.transform.localScale;
+                scale.x = WhiteKeySeparatorWidthMeters /
+                    (BaseWhiteKeyWidthMeters * KeyboardGeometry.localScale.x);
+                renderer.transform.localScale = scale;
+                renderer.sharedMaterial = m_CalibrationTransparency ? m_TransparentMaterial : m_SharedMaterial;
+                renderer.SetPropertyBlock(block);
             }
         }
 

@@ -1058,8 +1058,11 @@ namespace QuestPianoMotion.Research.Tests
                 Assert.That(keyboard.TryApplyCalibration(
                     CreateScaledCalibration(Vector3.one, Quaternion.Euler(4f, 25f, 2f), 0.8f, 1.2f)), Is.True);
                 Physics.SyncTransforms();
-                foreach (var renderer in keyboard.KeyboardRoot.GetComponentsInChildren<Renderer>(true))
+                // Only key views have physics; decorative separator renderers intentionally do not.
+                for (var note = keyboard.MinNote; note <= keyboard.MaxNote; ++note)
                 {
+                    Assert.That(keyboard.TryGetKey(note, out var key), Is.True);
+                    var renderer = key.Renderer;
                     var collider = renderer.GetComponent<BoxCollider>();
                     Assert.That(collider, Is.Not.Null, renderer.name);
                     AssertVectorClose(renderer.bounds.center, collider.bounds.center);

@@ -123,7 +123,10 @@ namespace QuestPianoMotion.Research.Distributed
         }
         void ApplyControl(SessionControlPacket p)
         {
-            var duplicate=!m_AppliedCommands.Add(p.CommandId);var stale=!duplicate&&p.CommandId<m_LastCommandId;if(!duplicate&&!stale)m_LastCommandId=Math.Max(m_LastCommandId,p.CommandId);if(!duplicate&&!stale){m_SessionId=p.Header.SessionId;SessionState=p.Command==SessionCommand.Start?"Recording":"Idle";if(p.Command==SessionCommand.Start){m_SnapshotReceived=m_SnapshotApplied=m_SnapshotStaleDropped=m_SnapshotSessionMismatchDropped=m_SnapshotNoteRepairs=m_SnapshotCc64Repairs=0;m_LastSnapshotDiagnosticsSend=0d;m_SnapshotDiagnosticsDirty=true;}}
+            var duplicate=!m_AppliedCommands.Add(p.CommandId);var stale=!duplicate&&p.CommandId<m_LastCommandId;if(!duplicate&&!stale)m_LastCommandId=Math.Max(m_LastCommandId,p.CommandId);if(!duplicate&&!stale){m_SessionId=p.Header.SessionId;SessionState=p.Command==SessionCommand.Start?"Recording":"Idle";if(p.Command==SessionCommand.Start){m_SnapshotReceived=m_SnapshotApplied=m_SnapshotStaleDropped=m_SnapshotSessionMismatchDropped=m_SnapshotNoteRepairs=m_SnapshotCc64Repairs=0;m_LastSnapshotDiagnosticsSend=0d;m_SnapshotDiagnosticsDirty=true;
+                try{DistributedSessionRecorder.WriteQuestMetadata(m_SessionId,m_Calibration?.CurrentAppliedCalibration,m_Keyboard);}
+                catch(Exception exception){Debug.LogWarning("Quest session metadata could not be saved: "+exception.Message,this);}
+            }}
             var now=ResearchServices.Clock.AbsoluteSeconds;var status=stale?SessionAckStatus.Rejected:(duplicate?SessionAckStatus.AlreadyApplied:SessionAckStatus.Accepted);var n=NetworkProtocolV1.WriteSessionAck(m_SendBuffer,++m_Sequence,now,stale?m_SessionId:p.Header.SessionId,p.Command,status,p.CommandId);m_Transport.Send(m_SendBuffer,n,m_Host);
         }
         void HandleHostDisconnect(string reason){if(m_Transport==null)return;ResetConnectionState();m_Midi?.Disconnect();if(m_RemoteProcessor!=null){m_RemoteProcessor.Reset();m_RemoteProcessor.Connected=false;}SessionState="Disconnected";Debug.LogWarning("Quest network state: Disconnected reason="+reason+". XR, passthrough and local hand visualization remain active.",this);}

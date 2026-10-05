@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Process = System.Diagnostics.Process;
+using ProcessStartInfo = System.Diagnostics.ProcessStartInfo;
 using QuestPianoMotion.Research.Distributed;
 using Unity.XR.CoreUtils;
 using UnityEditor;
@@ -25,6 +27,7 @@ namespace QuestPianoMotion.Research.Editor
         public const string QuestScene="Assets/Research/Scenes/PianoDistributedQuest.unity";
         public const string HostScene="Assets/Research/Scenes/PianoDistributedHost.unity";
         const string BuildInfoPath="Assets/Research/Resources/DistributedBuildInfo.txt";
+        const string BuildMetadataPath="Assets/Research/Resources/DistributedBuildMetadata.json";
         const string XriInputActionsPath="Assets/Samples/XR Interaction Toolkit/3.5.1/Starter Assets/XRI Default Input Actions.inputactions";
         const string RightNearFarPrefabPath="Assets/Samples/XR Interaction Toolkit/3.5.1/Starter Assets/Prefabs/Interactors/Right_NearFarInteractor.prefab";
         [MenuItem("Quest Piano Motion/Create Distributed Scenes")]
@@ -101,6 +104,7 @@ namespace QuestPianoMotion.Research.Editor
         {
             var buildInfoExisted=File.Exists(BuildInfoPath);
             var previousBuildInfo=buildInfoExisted?File.ReadAllBytes(BuildInfoPath):null;
+            var previousBuildMetadata=ReadExistingBuildMetadata(BuildMetadataPath);
             var preloadedBeforeBuild=PlayerSettings.GetPreloadedAssets();
             var activeTargetBeforeBuild=EditorUserBuildSettings.activeBuildTarget;
             var activeTargetGroupBeforeBuild=EditorUserBuildSettings.selectedBuildTargetGroup;
@@ -124,6 +128,7 @@ namespace QuestPianoMotion.Research.Editor
                     {
                         AssetDatabase.DeleteAsset(BuildInfoPath);
                     }
+                    RestoreBuildMetadata(BuildMetadataPath,previousBuildMetadata);
                 }
                 finally
                 {
@@ -134,13 +139,81 @@ namespace QuestPianoMotion.Research.Editor
             if(report.summary.result!=BuildResult.Succeeded)throw new InvalidDataException(target+" build failed: "+report.summary.result);
             Debug.Log(target+" validation build passed: "+output);
         }
+        static byte[] ReadExistingBuildMetadata(string path)=>File.Exists(path)?File.ReadAllBytes(path):null;
+        static void RestoreBuildMetadata(string path,byte[] previous)
+        {
+            if(previous!=null)
+            {
+                File.WriteAllBytes(path,previous);
+                AssetDatabase.ImportAsset(path,ImportAssetOptions.ForceSynchronousImport);
+            }
+            else if(File.Exists(path))
+            {
+                AssetDatabase.DeleteAsset(path);
+            }
+        }
         static void PrepareBuildInfo()
         {
             Directory.CreateDirectory(Path.GetDirectoryName(BuildInfoPath));
+            var gitCommit=GitOutput("rev-parse HEAD");
+            var gitStatus=GitOutput("status --porcelain");
             var buildInfoUtc=DateTime.UtcNow.ToString("O");
             File.WriteAllText(BuildInfoPath,buildInfoUtc);
             AssetDatabase.ImportAsset(BuildInfoPath,ImportAssetOptions.ForceSynchronousImport);
+            var metadata=new DistributedBuildInfo.BuildMetadata
+            {
+                git_commit_hash=gitCommit,
+                git_dirty=gitStatus==null?null:(gitStatus.Length==0?"false":"true"),
+                xr_hands_version=PackageVersion("com.unity.xr.hands"),
+                xr_interaction_toolkit_version=PackageVersion("com.unity.xr.interaction.toolkit"),
+                openxr_version=PackageVersion("com.unity.xr.openxr"),
+                meta_openxr_version=PackageVersion("com.unity.xr.meta-openxr"),
+                input_system_version=PackageVersion("com.unity.inputsystem")
+            };
+            File.WriteAllText(BuildMetadataPath,JsonUtility.ToJson(metadata,true));
+            AssetDatabase.ImportAsset(BuildMetadataPath,ImportAssetOptions.ForceSynchronousImport);
             Debug.Log("Distributed BuildInfo UTC: "+buildInfoUtc);
+        }
+        static string PackageVersion(string packageName)=>UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages()
+            .FirstOrDefault(package=>package.name==packageName)?.version;
+        static string GitOutput(string arguments)
+        {
+            try
+            {
+                var start=new ProcessStartInfo(GitExecutable(),arguments){WorkingDirectory=Directory.GetParent(Application.dataPath).FullName,UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
+                using(var process=Process.Start(start))
+                {
+                    if(process==null)return null;
+                    var output=process.StandardOutput.ReadToEndAsync();
+                    var error=process.StandardError.ReadToEndAsync();
+                    if(!process.WaitForExit(3000)){process.Kill();return null;}
+                    if(process.ExitCode!=0)return null;
+                    error.GetAwaiter().GetResult();
+                    return output.GetAwaiter().GetResult().Trim();
+                }
+            }
+            catch(Exception){return null;}
+        }
+        static string GitExecutable()
+        {
+#if UNITY_EDITOR_WIN
+            try
+            {
+                using(var key=Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\GitForWindows"))
+                {
+                    var path=key?.GetValue("InstallPath") as string;
+                    var executable=Path.Combine(path??string.Empty,"cmd","git.exe");
+                    if(File.Exists(executable))return executable;
+                }
+            }
+            catch(Exception){}
+#endif
+            foreach(var drive in Environment.GetLogicalDrives())
+            {
+                var executable=Path.Combine(drive,"Git","cmd","git.exe");
+                if(File.Exists(executable))return executable;
+            }
+            return "git";
         }
         static InputActionProperty Action(string name,string type,string binding){var action=new InputAction(name,InputActionType.Value,expectedControlType:type);action.AddBinding(binding);return new InputActionProperty(action);}
         static InputActionReference Reference(InputActionAsset asset,string actionPath)

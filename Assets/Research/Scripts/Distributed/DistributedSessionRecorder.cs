@@ -27,6 +27,7 @@ namespace QuestPianoMotion.Research.Distributed
             m_SnapshotSent=m_SnapshotReceived=m_SnapshotApplied=m_SnapshotStaleDropped=m_SnapshotSessionMismatchDropped=m_SnapshotNoteRepairs=m_SnapshotCc64Repairs=0;m_SnapshotLastGeneration=0;
             SessionPath=Path.Combine(Application.persistentDataPath,"PianoResearch","DistributedSessions",DateTime.UtcNow.ToString("yyyyMMdd-HHmmss",CultureInfo.InvariantCulture)+"_"+sessionId.ToString("N"));Directory.CreateDirectory(SessionPath);
             File.WriteAllText(Path.Combine(SessionPath,"session_metadata.json"),"{\n  \"protocol_version\": 1,\n  \"session_id\": \""+sessionId+"\",\n  \"start_utc\": \""+DateTime.UtcNow.ToString("O")+"\",\n  \"quest_ip\": \""+Json(questIp)+"\",\n  \"midi_device\": \""+Json(midiDevice)+"\",\n  \"application_version\": \""+Json(Application.version)+"\",\n  \"build_guid\": \""+Json(Application.buildGUID)+"\",\n  \"build_timestamp_utc\": \""+Json(DistributedBuildInfo.TimestampUtc)+"\",\n  \"build_identifier\": \""+Json(DistributedBuildInfo.Identifier)+"\",\n  \"scene\": \""+Json(UnityEngine.SceneManagement.SceneManager.GetActiveScene().path)+"\",\n  \"execution_mode\": \"DistributedPcHost\"\n}\n");
+            ExtendMetadata(Path.Combine(SessionPath,"session_metadata.json"),null,null);
             m_Queue=new BlockingCollection<LogLine>(65536);m_Ready=new ManualResetEventSlim(false);m_Thread=new Thread(WriterLoop){IsBackground=true,Name="Distributed session CSV writer"};m_Thread.Start();
             if(!m_Ready.Wait(3000)||!string.IsNullOrEmpty(m_Error)){State=DistributedSessionState.Faulted;End("socket_error");return false;}ResearchServices.Clock.StartSession();State=DistributedSessionState.Recording;return true;
         }
@@ -81,6 +82,48 @@ namespace QuestPianoMotion.Research.Distributed
         StreamWriter Open(string name,string header){var w=new StreamWriter(Path.Combine(SessionPath,name),false,new UTF8Encoding(false),65536);w.WriteLine(header);return w;}
         void DisposeCompletedResources(){if(m_Thread!=null&&m_Thread.IsAlive)return;m_Ready?.Dispose();m_Queue?.Dispose();m_Ready=null;m_Queue=null;m_Thread=null;}
         static bool IsAbortedReason(string reason){return string.Equals(reason,"quest_disconnect",StringComparison.Ordinal)||string.Equals(reason,"host_stop_network",StringComparison.Ordinal)||string.Equals(reason,"network_timeout",StringComparison.Ordinal)||string.Equals(reason,"application_quit",StringComparison.Ordinal)||string.Equals(reason,"socket_error",StringComparison.Ordinal)||string.Equals(reason,"session_stop_ack_timeout",StringComparison.Ordinal);}
+        public static void WriteQuestMetadata(Guid sessionId,PianoCalibrationData calibration,VirtualPianoKeyboard keyboard)
+        {
+            var directory=Path.Combine(Application.persistentDataPath,"PianoResearch","DistributedSessions",sessionId.ToString("N")+"_Quest");
+            Directory.CreateDirectory(directory);
+            var path=Path.Combine(directory,"session_metadata.json");
+            var content="{\n  \"protocol_version\": 1,\n  \"session_id\": \""+sessionId+"\",\n  \"start_utc\": \""+DateTime.UtcNow.ToString("O")+"\",\n  \"quest_ip\": null,\n  \"midi_device\": null,\n  \"application_version\": \""+Json(Application.version)+"\",\n  \"build_guid\": \""+Json(Application.buildGUID)+"\",\n  \"build_timestamp_utc\": \""+Json(DistributedBuildInfo.TimestampUtc)+"\",\n  \"build_identifier\": \""+Json(DistributedBuildInfo.Identifier)+"\",\n  \"scene\": \""+Json(UnityEngine.SceneManagement.SceneManager.GetActiveScene().path)+"\",\n  \"execution_mode\": \"DistributedQuestClient\"\n}\n";
+            File.WriteAllText(path,content);
+            ExtendMetadata(path,calibration,keyboard);
+        }
+        static void ExtendMetadata(string path,PianoCalibrationData calibration,VirtualPianoKeyboard keyboard)
+        {
+            var json=File.ReadAllText(path);
+            var end=json.LastIndexOf('}');
+            if(end<0)throw new InvalidDataException("Invalid session metadata base JSON.");
+            var b=new StringBuilder(json.Substring(0,end).TrimEnd());
+            b.Append(",\n  \"unity_version\": ").Append(Quoted(Application.unityVersion));
+            b.Append(",\n  \"git_commit_hash\": ").Append(NullableQuoted(DistributedBuildInfo.Metadata.git_commit_hash));
+            var dirty=DistributedBuildInfo.Metadata.git_dirty;
+            b.Append(",\n  \"git_dirty\": ").Append(dirty=="true"||dirty=="false"?dirty:"null");
+            b.Append(",\n  \"keyboard_display_mode\": ").Append(keyboard!=null?Quoted(keyboard.DisplayMode.ToString()):"null");
+            b.Append(",\n  \"calibration_snapshot\": ");
+            if(calibration==null||!calibration.valid)b.Append("null");
+            else
+            {
+                b.Append("{\"calibration_version\": ").Append(calibration.formatVersion)
+                    .Append(", \"calibration_data\": ").Append(JsonUtility.ToJson(calibration))
+                    .Append(", \"keyboard_root_position\": ").Append(keyboard?.KeyboardRoot!=null?JsonUtility.ToJson(keyboard.KeyboardRoot.position):"null")
+                    .Append(", \"keyboard_root_rotation\": ").Append(keyboard?.KeyboardRoot!=null?JsonUtility.ToJson(keyboard.KeyboardRoot.rotation):"null")
+                    .Append(", \"scaleX\": ").Append(calibration.scaleX.ToString("R",CultureInfo.InvariantCulture))
+                    .Append(", \"scaleZ\": ").Append(calibration.scaleZ.ToString("R",CultureInfo.InvariantCulture)).Append('}');
+            }
+            b.Append(",\n  \"coordinate_system\": {\"world_space\": \"Unity world space, metres\", \"keyboard_space\": \"KeyboardRoot local space, metres before geometry scaling\", \"keyboard_local_positive_x\": \"right, from A toward B along keys\", \"keyboard_local_positive_y\": \"up from the key surface\", \"keyboard_local_positive_z\": \"rear, from A toward C along key depth\"}");
+            var build=DistributedBuildInfo.Metadata;
+            b.Append(",\n  \"runtime_versions\": {\"xr_hands\": ").Append(NullableQuoted(build.xr_hands_version))
+                .Append(", \"xr_interaction_toolkit\": ").Append(NullableQuoted(build.xr_interaction_toolkit_version))
+                .Append(", \"openxr\": ").Append(NullableQuoted(build.openxr_version))
+                .Append(", \"meta_openxr\": ").Append(NullableQuoted(build.meta_openxr_version))
+                .Append(", \"input_system\": ").Append(NullableQuoted(build.input_system_version)).Append('}');
+            b.Append("\n}\n");File.WriteAllText(path,b.ToString());
+        }
+        static string Quoted(string value)=>"\""+Json(value)+"\"";
+        static string NullableQuoted(string value)=>string.IsNullOrEmpty(value)?"null":Quoted(value);
         static string Csv(string s)=>"\""+(s??string.Empty).Replace("\"","\"\"")+"\"";static string Json(string s)=>(s??string.Empty).Replace("\\","\\\\").Replace("\"","\\\"");
     }
 }

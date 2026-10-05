@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using NUnit.Framework;
+using QuestPianoMotion.Research.Distributed;
+using UnityEngine;
 
 namespace QuestPianoMotion.Research.Tests
 {
@@ -64,6 +66,31 @@ namespace QuestPianoMotion.Research.Tests
             var warnings = string.Join("\n", result.Warnings);
             Assert.That(warnings, Does.Contain("queue_overflows"));
             Assert.That(warnings, Does.Contain("writer_flush_close_completed"));
+        }
+
+        [Test]
+        public void QuestMetadata_CapturesAppliedCalibrationAndKeepsProtocolVersion()
+        {
+            var id=Guid.NewGuid();
+            var directory=Path.Combine(Application.persistentDataPath,"PianoResearch","DistributedSessions",id.ToString("N")+"_Quest");
+            try
+            {
+                var calibration=new PianoCalibrationData
+                {
+                    valid=true,formatVersion=1,calibrationId="calibration-test",pointA=new Vector3(1,2,3),
+                    pointB=new Vector3(2,2,3),pointC=new Vector3(1,2,4),scaleX=1.1f,scaleZ=0.9f
+                };
+                DistributedSessionRecorder.WriteQuestMetadata(id,calibration,null);
+                var metadata=File.ReadAllText(Path.Combine(directory,"session_metadata.json"));
+                Assert.That(metadata,Does.Contain("\"protocol_version\": 1"));
+                Assert.That(metadata,Does.Contain("\"calibration_version\": 1"));
+                Assert.That(metadata,Does.Contain("\"calibration-test\""));
+                Assert.That(metadata,Does.Contain("\"pointA\""));
+                Assert.That(metadata,Does.Contain("\"scaleX\": 1.1"));
+                Assert.That(metadata,Does.Contain("\"keyboard_root_position\": null"));
+                Assert.That(metadata,Does.Contain("\"keyboard_display_mode\": null"));
+            }
+            finally { if(Directory.Exists(directory))Directory.Delete(directory,true); }
         }
 
         void WriteSummary(string fields)

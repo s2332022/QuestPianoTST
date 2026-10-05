@@ -119,6 +119,114 @@ namespace QuestPianoMotion.Research.Tests
             finally { Object.DestroyImmediate(host); }
         }
 
+        [TestCase(KeyboardDisplayMode.Full88Keys, 51)]
+        [TestCase(KeyboardDisplayMode.Research13Keys, 7)]
+        public void WhiteBoundaries_HaveRenderOnlySeparatorsWithoutChangingKeyGeometry(
+            KeyboardDisplayMode mode, int expectedSeparators)
+        {
+            var host = Create(out var keyboard);
+            try
+            {
+                keyboard.SetDisplayMode(mode);
+                var separatorCount = 0;
+                PianoKeyView previousWhite = null;
+                for (var note = keyboard.MinNote; note <= keyboard.MaxNote; ++note)
+                {
+                    Assert.That(keyboard.TryGetKey(note, out var key), Is.True);
+                    var keyTransform = key.Renderer.transform;
+                    var separator = keyTransform.Find("White Key Separator");
+                    if (key.IsBlack || previousWhite == null)
+                    {
+                        Assert.That(separator, Is.Null);
+                    }
+                    else
+                    {
+                        ++separatorCount;
+                        Assert.That(separator, Is.Not.Null);
+                        Assert.That(separator.gameObject.layer, Is.EqualTo(2));
+                        Assert.That(separator.GetComponents<Component>().Length, Is.EqualTo(3));
+                        Assert.That(separator.GetComponent<Collider>(), Is.Null);
+                        Assert.That(separator.GetComponent<Rigidbody>(), Is.Null);
+                        Assert.That(separator.GetComponent<MeshFilter>().sharedMesh,
+                            Is.SameAs(keyTransform.GetComponent<MeshFilter>().sharedMesh));
+                        Assert.That(separator.TransformVector(Vector3.right).magnitude,
+                            Is.EqualTo(0.0012f).Within(1e-6f));
+                        Assert.That(separator.TransformVector(Vector3.up).magnitude,
+                            Is.EqualTo(0.0002f).Within(1e-6f));
+                        Assert.That(separator.TransformVector(Vector3.forward).magnitude,
+                            Is.EqualTo(VirtualPianoKeyboard.BaseWhiteKeyDepthMeters).Within(1e-6f));
+                        var center = keyboard.KeyboardGeometry.InverseTransformPoint(separator.position);
+                        Assert.That(center.x, Is.EqualTo(
+                            (previousWhite.RestLocalPosition.x + key.RestLocalPosition.x) * 0.5f).Within(1e-6f));
+                        Assert.That(center.y, Is.EqualTo(0.00025f).Within(1e-6f));
+                        var block = new MaterialPropertyBlock();
+                        separator.GetComponent<Renderer>().GetPropertyBlock(block);
+                        Assert.That(((Vector4)block.GetColor("_BaseColor") - new Vector4(0.18f, 0.18f, 0.18f, 1f)).magnitude, Is.LessThan(1e-5f));
+                    }
+                    if (!key.IsBlack)
+                    {
+                        Assert.That(keyTransform.localPosition, Is.EqualTo(key.RestLocalPosition));
+                        Assert.That(keyTransform.localScale, Is.EqualTo(new Vector3(
+                            VirtualPianoKeyboard.BaseWhiteKeyWidthMeters,
+                            VirtualPianoKeyboard.BaseWhiteKeyHeightMeters,
+                            VirtualPianoKeyboard.BaseWhiteKeyDepthMeters)));
+                        previousWhite = key;
+                    }
+                }
+                Assert.That(separatorCount, Is.EqualTo(expectedSeparators));
+                Assert.That(keyboard.KeyboardGeometry.childCount, Is.EqualTo(keyboard.KeyCount));
+                Assert.That(keyboard.KeyboardRoot.GetComponentsInChildren<Collider>().Length,
+                    Is.EqualTo(keyboard.KeyCount));
+            }
+            finally { Object.DestroyImmediate(host); }
+        }
+
+        [TestCase(KeyboardDisplayMode.Full88Keys, 0.65f, 1.2f)]
+        [TestCase(KeyboardDisplayMode.Research13Keys, 1.3f, 0.8f)]
+        public void Separators_KeepPhysicalWidthAndCalibrationTransparencyAcrossModeSwitches(
+            KeyboardDisplayMode mode, float scaleX, float scaleZ)
+        {
+            var host = Create(out var keyboard);
+            try
+            {
+                keyboard.SetDisplayMode(mode);
+                var origin = new Vector3(1f, 2f, 3f);
+                var rotation = Quaternion.Euler(7f, 30f, 2f);
+                Assert.That(PianoCalibrationMath.TryCalculate(origin,
+                    origin + rotation * Vector3.right * VirtualPianoKeyboard.BaseOctaveSpanMeters * scaleX,
+                    origin + rotation * Vector3.forward * VirtualPianoKeyboard.BaseWhiteKeyDepthMeters * scaleZ,
+                    out var calibration), Is.True);
+                Assert.That(keyboard.TryApplyCalibration(calibration), Is.True);
+                var geometryPosition = keyboard.KeyboardGeometry.localPosition;
+                var geometryScale = keyboard.KeyboardGeometry.localScale;
+                keyboard.SetCalibrationTransparency(true);
+                keyboard.SetDisplayMode(mode == KeyboardDisplayMode.Full88Keys
+                    ? KeyboardDisplayMode.Research13Keys : KeyboardDisplayMode.Full88Keys);
+                keyboard.TryGetKey(keyboard.MaxNote, out var key);
+                var separator = key.Renderer.transform.Find("White Key Separator");
+                var renderer = separator.GetComponent<Renderer>();
+                Assert.That(separator.TransformVector(Vector3.right).magnitude,
+                    Is.EqualTo(0.0012f).Within(1e-6f));
+                Assert.That(renderer.sharedMaterial, Is.SameAs(key.Renderer.sharedMaterial));
+                var block = new MaterialPropertyBlock();
+                renderer.GetPropertyBlock(block);
+                Assert.That(block.GetColor("_BaseColor").a, Is.EqualTo(0.35f));
+                keyboard.SetCalibrationTransparency(false);
+                Assert.That(renderer.sharedMaterial, Is.SameAs(key.Renderer.sharedMaterial));
+                renderer.GetPropertyBlock(block);
+                Assert.That(((Vector4)block.GetColor("_BaseColor") - new Vector4(0.18f, 0.18f, 0.18f, 1f)).magnitude, Is.LessThan(1e-5f));
+                Assert.That((keyboard.KeyboardRoot.position - origin).magnitude, Is.LessThan(1e-5f));
+                Assert.That(Quaternion.Angle(keyboard.KeyboardRoot.rotation, rotation), Is.LessThan(0.01f));
+                Assert.That(keyboard.KeyboardRoot.localScale, Is.EqualTo(Vector3.one));
+                Assert.That(keyboard.KeyboardGeometry.localPosition, Is.EqualTo(geometryPosition));
+                Assert.That(keyboard.KeyboardGeometry.localScale, Is.EqualTo(geometryScale));
+                Assert.That(keyboard.KeyboardGeometry.childCount, Is.EqualTo(keyboard.KeyCount));
+                keyboard.ConfigureMinimal(host.transform);
+                Assert.That(keyboard.KeyboardRoot.GetComponentsInChildren<Collider>(true), Is.Empty);
+            }
+            finally { Object.DestroyImmediate(host); }
+        }
+
         [Test]
         public void SavedMode_MissingInvalidAndLegacyValuesDefaultToFull()
         {

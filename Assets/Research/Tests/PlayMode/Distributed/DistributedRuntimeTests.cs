@@ -11,6 +11,20 @@ namespace QuestPianoMotion.Research.Tests
 {
     public sealed class DistributedRuntimeTests
     {
+        [Serializable] sealed class MetadataDocument
+        {
+            public int protocol_version;
+            public string session_id;
+            public string keyboard_display_mode;
+            public CalibrationDocument calibration_snapshot;
+        }
+        [Serializable] sealed class CalibrationDocument
+        {
+            public Vector3 keyboard_root_position;
+            public Quaternion keyboard_root_rotation;
+            public float scaleX;
+            public float scaleZ;
+        }
         [Test] public void HostAndQuestRuntimeComponentsCanBeCreatedWithoutPlatformMidi()
         {
             var host=new GameObject("host");host.SetActive(false);Assert.That(host.AddComponent<DistributedPcHost>(),Is.Not.Null);var quest=new GameObject("quest");quest.SetActive(false);Assert.That(quest.AddComponent<DistributedQuestClient>(),Is.Not.Null);UnityEngine.Object.DestroyImmediate(host);UnityEngine.Object.DestroyImmediate(quest);
@@ -51,7 +65,31 @@ namespace QuestPianoMotion.Research.Tests
         }
         [UnityTest] public IEnumerator RecorderCreatesAndClosesAllSessionFiles()
         {
-            var go=new GameObject("recorder",typeof(DistributedSessionRecorder));var recorder=go.GetComponent<DistributedSessionRecorder>();Assert.That(recorder.Begin(Guid.NewGuid(),"127.0.0.1","test"),Is.True);recorder.SetKeyboardSnapshotDiagnostics(1,2,1,1,0,3,4,5);recorder.End("test");Assert.That(recorder.State,Is.EqualTo(DistributedSessionState.Completed));var expected=new[]{"session_metadata.json","quest_hand_joints.csv","quest_head_pose.csv","pc_midi_events.csv","quest_keyboard_state.csv","clock_sync.csv","network_diagnostics.csv","session_summary.json"};foreach(var file in expected)Assert.That(File.Exists(Path.Combine(recorder.SessionPath,file)),Is.True,file);var summary=File.ReadAllText(Path.Combine(recorder.SessionPath,"session_summary.json"));Assert.That(summary,Does.Contain("\"keyboard_snapshot_received\": 2"));Assert.That(summary,Does.Contain("\"keyboard_snapshot_cc64_repairs\": 4"));var validation=DistributedSessionLogValidator.ValidateDirectory(recorder.SessionPath);Assert.That(validation.Status,Is.EqualTo(SessionLogValidationStatus.Valid),string.Join("; ",validation.Errors));UnityEngine.Object.Destroy(go);yield return null;
+            var go=new GameObject("recorder",typeof(DistributedSessionRecorder));var recorder=go.GetComponent<DistributedSessionRecorder>();Assert.That(recorder.Begin(Guid.NewGuid(),"127.0.0.1","test"),Is.True);recorder.SetKeyboardSnapshotDiagnostics(1,2,1,1,0,3,4,5);recorder.End("test");Assert.That(recorder.State,Is.EqualTo(DistributedSessionState.Completed));var expected=new[]{"session_metadata.json","quest_hand_joints.csv","quest_head_pose.csv","pc_midi_events.csv","quest_keyboard_state.csv","clock_sync.csv","network_diagnostics.csv","session_summary.json"};foreach(var file in expected)Assert.That(File.Exists(Path.Combine(recorder.SessionPath,file)),Is.True,file);var metadata=File.ReadAllText(Path.Combine(recorder.SessionPath,"session_metadata.json"));Assert.That(metadata,Does.Contain("\"calibration_snapshot\": null"));Assert.That(metadata,Does.Contain("\"keyboard_display_mode\": null"));Assert.That(metadata,Does.Contain("\"unity_version\""));Assert.That(metadata,Does.Contain("\"coordinate_system\""));var summary=File.ReadAllText(Path.Combine(recorder.SessionPath,"session_summary.json"));Assert.That(summary,Does.Contain("\"keyboard_snapshot_received\": 2"));Assert.That(summary,Does.Contain("\"keyboard_snapshot_cc64_repairs\": 4"));var validation=DistributedSessionLogValidator.ValidateDirectory(recorder.SessionPath);Assert.That(validation.Status,Is.EqualTo(SessionLogValidationStatus.Valid),string.Join("; ",validation.Errors));UnityEngine.Object.Destroy(go);yield return null;
+        }
+
+        [UnityTest] public IEnumerator QuestMetadata_RecordsLiveKeyboardTransformAndDisplayMode()
+        {
+            var id=Guid.NewGuid();var directory=Path.Combine(Application.persistentDataPath,"PianoResearch","DistributedSessions",id.ToString("N")+"_Quest");
+            var keyboardObject=new GameObject("metadata-keyboard",typeof(VirtualPianoKeyboard));
+            try
+            {
+                yield return null;
+                var keyboard=keyboardObject.GetComponent<VirtualPianoKeyboard>();
+                Assert.That(keyboard.KeyboardRoot,Is.Not.Null);
+                keyboard.KeyboardRoot.SetPositionAndRotation(new Vector3(4,5,6),Quaternion.Euler(0,30,0));
+                var calibration=new PianoCalibrationData{valid=true,formatVersion=1,scaleX=1.1f,scaleZ=0.9f};
+                DistributedSessionRecorder.WriteQuestMetadata(id,calibration,keyboard);
+                var document=JsonUtility.FromJson<MetadataDocument>(File.ReadAllText(Path.Combine(directory,"session_metadata.json")));
+                Assert.That(document.protocol_version,Is.EqualTo(1));
+                Assert.That(document.session_id,Is.EqualTo(id.ToString()));
+                Assert.That(document.keyboard_display_mode,Is.EqualTo("Full88Keys"));
+                Assert.That(document.calibration_snapshot.keyboard_root_position,Is.EqualTo(new Vector3(4,5,6)));
+                Assert.That(Quaternion.Angle(document.calibration_snapshot.keyboard_root_rotation,keyboard.KeyboardRoot.rotation),Is.LessThan(0.01f));
+                Assert.That(document.calibration_snapshot.scaleX,Is.EqualTo(1.1f).Within(0.0001f));
+                Assert.That(document.calibration_snapshot.scaleZ,Is.EqualTo(0.9f).Within(0.0001f));
+            }
+            finally{UnityEngine.Object.Destroy(keyboardObject);if(Directory.Exists(directory))Directory.Delete(directory,true);}
         }
 
         [UnityTest] public IEnumerator HostTimeoutAbortsRecordingResetsAndRebinds()
