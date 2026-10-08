@@ -101,13 +101,15 @@ namespace QuestPianoMotion.Research.Tests
             Sample(button, 0.040f);
             Assert.That(m_Module.CurrentTarget, Is.SameAs(button.gameObject),
                 $"screen={m_Module.LastScreenPoint} valid={m_Module.LastScreenValid} overCanvas={m_Module.LastOverCanvas} raycasts={m_Module.LastRaycastCount}");
-            Sample(button, 0.025f);
+            // Stay inside hysteresis thresholds: world-coordinate subtraction can round
+            // an exact 25/35 mm sample to the opposite side after moving/tilting the UI.
+            Sample(button, 0.024f);
             Assert.That(m_Module.PointerDownCount, Is.EqualTo(1));
             Sample(button, 0.020f);
             Sample(button, 0.030f);
             Assert.That(m_Module.PointerDownCount, Is.EqualTo(1));
             Assert.That(m_Module.ClickCount, Is.Zero);
-            Sample(button, 0.035f);
+            Sample(button, 0.036f);
             Assert.That(m_Module.PointerUpCount, Is.EqualTo(1));
             Assert.That(m_Module.ClickCount, Is.EqualTo(1));
             Assert.That(invoked, Is.EqualTo(1));
@@ -182,14 +184,14 @@ namespace QuestPianoMotion.Research.Tests
         }
 
         [Test]
-        public void Recenter_KeepsUiInFrontAtSpecifiedRelativePosition()
+        public void Recenter_UsesPerformanceOffsetsWhenKeyboardUnavailable()
         {
             m_Camera.transform.SetPositionAndRotation(new Vector3(2f, 1.5f, -3f), Quaternion.Euler(0f, 135f, 0f));
             m_Ui.PlaceAtCamera(m_Camera);
             var relative = m_Camera.transform.InverseTransformPoint(m_Ui.transform.position);
-            Assert.That(relative.x, Is.EqualTo(0f).Within(0.0001f));
-            Assert.That(relative.y, Is.EqualTo(-0.1f).Within(0.0001f));
-            Assert.That(relative.z, Is.EqualTo(1.1f).Within(0.0001f));
+            Assert.That(relative.x, Is.EqualTo(0.15f).Within(0.0001f));
+            Assert.That(relative.y, Is.EqualTo(0.05f).Within(0.0001f));
+            Assert.That(relative.z, Is.EqualTo(1.05f).Within(0.0001f));
         }
 
         Button Button(string name) => m_Ui.GetComponentsInChildren<Button>(true).Single(x => x.name == name);

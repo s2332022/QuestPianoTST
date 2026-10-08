@@ -50,6 +50,10 @@ namespace QuestPianoMotion.Research.Distributed
         Sprite m_HandCursorSprite;
         QuestHmdPoseGate m_PlacementGate;
         float m_NextUpdate;
+        public PerformanceUiSafety Safety { get; private set; }
+        Vector3 m_LastKeyboardCenter;
+        Quaternion m_LastKeyboardRotation;
+        bool m_HasKeyboardAnchor;
 
         public bool HasBeenPlaced { get; private set; }
         public TMP_FontAsset FontAsset => m_Font;
@@ -84,6 +88,12 @@ namespace QuestPianoMotion.Research.Distributed
 
         void Update()
         {
+            if (m_Keyboard == null) m_Keyboard = FindAnyObjectByType<VirtualPianoKeyboard>();
+            // Follow calibration/rebuild changes only; do not make the panel head-locked.
+            if (HasBeenPlaced && TryGetKeyboardAnchor(out var center, out var rotation) &&
+                (!m_HasKeyboardAnchor || (center - m_LastKeyboardCenter).sqrMagnitude > 0.000001f ||
+                 Quaternion.Angle(rotation, m_LastKeyboardRotation) > 0.01f))
+                PlaceAtKeyboard(center, rotation);
             if (m_CalibrationStatus != null && m_Calibration != null)
             {
                 var message = m_Calibration.StatusText;
@@ -142,13 +152,45 @@ namespace QuestPianoMotion.Research.Distributed
             var xrOrigin = FindAnyObjectByType<XROrigin>();
             if (transform.parent != null)
                 transform.SetParent(null, false);
-            QuestSpatialPlacement.PlaceUi(transform, camera, xrOrigin);
+            if (TryGetKeyboardAnchor(out var center, out var rotation))
+                PlaceAtKeyboard(center, rotation);
+            else
+                QuestSpatialPlacement.PlacePerformanceUi(transform,
+                    camera.transform.position + QuestSpatialPlacement.HorizontalForward(camera, xrOrigin) * 0.75f + Vector3.down * 0.35f,
+                    Quaternion.LookRotation(QuestSpatialPlacement.HorizontalForward(camera, xrOrigin), Vector3.up));
             m_Canvas.worldCamera = camera;
             if (m_IpKeyboardCanvas != null)
                 m_IpKeyboardCanvas.worldCamera = camera;
             m_Canvas.enabled = true;
             HasBeenPlaced = true;
             Debug.Log($"[QuestPlacement] UI placed fallback={fallback} cameraRelative={camera.transform.InverseTransformPoint(transform.position)}", this);
+        }
+
+        bool TryGetKeyboardAnchor(out Vector3 center, out Quaternion rotation)
+        {
+            center = default;
+            rotation = Quaternion.identity;
+            if (m_Keyboard == null || m_Keyboard.KeyboardGeometry == null) return false;
+            var minX = float.PositiveInfinity;
+            var maxX = float.NegativeInfinity;
+            for (var note = m_Keyboard.MinNote; note <= m_Keyboard.MaxNote; ++note)
+                if (m_Keyboard.TryGetKey(note, out var key) && !key.IsBlack)
+                {
+                    minX = Mathf.Min(minX, key.RestLocalPosition.x);
+                    maxX = Mathf.Max(maxX, key.RestLocalPosition.x);
+                }
+            if (!float.IsFinite(minX)) return false;
+            center = m_Keyboard.KeyboardGeometry.TransformPoint(new Vector3((minX + maxX) * 0.5f, 0f, 0f));
+            rotation = m_Keyboard.KeyboardRoot.rotation;
+            return true;
+        }
+
+        void PlaceAtKeyboard(Vector3 center, Quaternion rotation)
+        {
+            QuestSpatialPlacement.PlacePerformanceUi(transform, center, rotation);
+            m_LastKeyboardCenter = center;
+            m_LastKeyboardRotation = rotation;
+            m_HasKeyboardAnchor = true;
         }
 
         void Build()
@@ -169,11 +211,13 @@ namespace QuestPianoMotion.Research.Distributed
             m_Canvas.enabled = false;
             var rect = (RectTransform)transform;
             rect.sizeDelta = new Vector2(720, 970);
-            rect.localScale = Vector3.one * 0.0009f;
+            rect.localScale = Vector3.one * 0.00065f;
             gameObject.AddComponent<CanvasScaler>();
             m_CanvasGroup = gameObject.AddComponent<CanvasGroup>();
             m_CanvasGroup.interactable = true;
             m_CanvasGroup.blocksRaycasts = true;
+            Safety = gameObject.AddComponent<PerformanceUiSafety>();
+            Safety.Initialize(this, m_CanvasGroup, m_Keyboard);
             m_LegacyRaycaster = gameObject.AddComponent<GraphicRaycaster>();
             // The runtime canvas uses a double-sided TMP material and is placed with the same
             // horizontal heading as the XR camera. Do not discard its otherwise valid graphics
@@ -193,7 +237,7 @@ namespace QuestPianoMotion.Research.Distributed
             m_Ip = CreateInput("PC IP", new Vector2(20, -470), new Vector2(360, 48));
             m_Ip.readOnly = true;
             m_Ip.contentType = TMP_InputField.ContentType.DecimalNumber;
-            m_Ip.onSelect.AddListener(_ => OpenIpKeyboard());
+            m_Ip.onSelect.AddListener(_ => Safety.Run("EDIT IP", OpenIpKeyboard));
             m_DefaultIp = DistributedSettings.DefaultPcIpAddress;
             var savedIp = LoadSavedIp();
             if (m_Keyboard != null)
@@ -215,19 +259,19 @@ namespace QuestPianoMotion.Research.Distributed
                 }
                 m_Client.StopNetwork();
                 m_Client.StartNetwork();
-            });
-            CreateButton("DISCONNECT", new Vector2(540, -470), 130, () => m_Client?.StopNetwork());
+            }, true);
+            CreateButton("DISCONNECT", new Vector2(540, -470), 130, () => m_Client?.StopNetwork(), true);
             m_CaptureAButtonLabel = CreateButton("CALIBRATION A", new Vector2(20, -540), 140, () =>
             {
                 if (m_Calibration != null && m_Calibration.PassthroughRetryAvailable)
                     m_Calibration.RetryPassthroughCapture();
                 else
                     m_Calibration?.CaptureA();
-            });
+            }, true);
             CreateButton("CALIBRATION B", new Vector2(180, -540), 140, () => m_Calibration?.CaptureB());
             CreateButton("CALIBRATION C", new Vector2(340, -540), 140, () => m_Calibration?.CaptureC());
-            CreateButton("SAVE CALIBRATION", new Vector2(500, -540), 170, () => m_Calibration?.SaveCalibration());
-            m_CancelCaptureButtonLabel = CreateButton("CANCEL CAPTURE", new Vector2(560, -610), 140,
+            CreateButton("SAVE CALIBRATION", new Vector2(500, -540), 170, () => m_Calibration?.SaveCalibration(), true);
+            m_CancelCaptureButtonLabel = CreateButton("CANCEL CAPTURE", new Vector2(500, -900), 200,
                 () => m_Calibration?.CancelCalibration());
             CreateButton("RECENTER UI", new Vector2(20, -610), 150, RecenterUi);
             CreateButton("HAND GAMEOBJECTS", new Vector2(190, -610), 190,
@@ -247,7 +291,11 @@ namespace QuestPianoMotion.Research.Distributed
                 "Capture Hand: RIGHT\nNot calibrated", new Vector2(20, -790), new Vector2(680, 90),
                 23, TextAlignmentOptions.TopLeft, Color.white);
             CreateButton("START RAW REC",new Vector2(20,-900),210,()=>m_Client?.BeginLocalResearchSession());
-            CreateButton("STOP RAW REC",new Vector2(260,-900),210,()=>m_Client?.EndLocalResearchSession());
+            CreateButton("STOP RAW REC",new Vector2(260,-900),210,()=>m_Client?.EndLocalResearchSession(), true);
+            var safetyStatus = CreateText("Performance UI State", transform, "UI READY - aim ray and pinch",
+                new Vector2(20, -440), new Vector2(680, 26), 19,
+                TextAlignmentOptions.MidlineLeft, new Color(1f, 0.85f, 0.35f));
+            Safety.SetStatusText(safetyStatus);
             CreateHandCursor();
 
             var inputController = FindAnyObjectByType<XriHandUiInputController>(FindObjectsInactive.Include);
@@ -269,6 +317,7 @@ namespace QuestPianoMotion.Research.Distributed
         public void ConfigureInputMode(UiInputMode mode)
         {
             var useXri = mode == UiInputMode.XriStandard;
+            Safety?.ConfigureInputMode(useXri);
             if (m_LegacyRaycaster != null)
                 m_LegacyRaycaster.enabled = !useXri;
             if (m_XriRaycaster != null)
@@ -336,8 +385,8 @@ namespace QuestPianoMotion.Research.Distributed
             var keyboardCanvasRect = (RectTransform)keyboardCanvasObject.transform;
             keyboardCanvasRect.anchorMin = keyboardCanvasRect.anchorMax = new Vector2(0.5f, 0.5f);
             keyboardCanvasRect.pivot = new Vector2(0.5f, 0.5f);
-            // The root UI is 720 units wide at a 0.0009 world scale. This puts the
-            // 430-unit keypad to the right with a stable 67.5 mm local-space gap.
+            // Keep the 430-unit keypad outside the 720-unit main panel.
+            // Both canvases inherit the same world placement and safety CanvasGroup.
             keyboardCanvasRect.anchoredPosition3D = new Vector3(650f, -40f, -8f);
             keyboardCanvasRect.sizeDelta = new Vector2(430f, 390f);
             keyboardCanvasRect.localRotation = Quaternion.identity;
@@ -405,11 +454,12 @@ namespace QuestPianoMotion.Research.Distributed
             Stretch(text.rectTransform, 3f, 3f, 2f, 2f, -2f);
             var button = go.GetComponent<Button>();
             button.targetGraphic = image;
-            button.onClick.AddListener(action);
+            button.onClick.AddListener(() => Safety.Run(label, action));
         }
 
         public void OpenIpKeyboard()
         {
+            if (Safety != null && !Safety.CanUseControls) return;
             if (m_IpKeyboard == null || m_Ip == null)
                 return;
             m_EditingIp = m_Ip.text ?? string.Empty;
@@ -423,6 +473,7 @@ namespace QuestPianoMotion.Research.Distributed
 
         public void HandleIpKey(string key)
         {
+            if (Safety != null && !Safety.CanUseControls) return;
             if (m_IpKeyboard == null || !m_IpKeyboard.activeSelf)
                 return;
             if (key == "BACKSPACE")
@@ -451,6 +502,7 @@ namespace QuestPianoMotion.Research.Distributed
 
         public bool ApplyIpKeyboardValue()
         {
+            if (Safety != null && !Safety.CanUseControls) return false;
             if (!IsValidIpv4(m_EditingIp))
             {
                 ShowIpError("Invalid IPv4 address.");
@@ -590,7 +642,7 @@ namespace QuestPianoMotion.Research.Distributed
             }
         }
 
-        TMP_Text CreateButton(string label, Vector2 position, float width, UnityEngine.Events.UnityAction action)
+        TMP_Text CreateButton(string label, Vector2 position, float width, UnityEngine.Events.UnityAction action, bool confirm = false)
         {
             var go = new GameObject(label, typeof(RectTransform), typeof(Image), typeof(Button));
             go.layer = gameObject.layer;
@@ -609,7 +661,7 @@ namespace QuestPianoMotion.Research.Distributed
             var button = go.GetComponent<Button>();
             button.interactable = true;
             button.targetGraphic = image;
-            button.onClick.AddListener(action);
+            button.onClick.AddListener(() => Safety.Run(label, action, confirm));
             return text;
         }
 

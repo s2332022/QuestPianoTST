@@ -87,6 +87,16 @@ namespace QuestPianoMotion.Research
 
         public event Action<KeyboardStateChange> StateChanged;
         public KeyboardStateTracker State => m_State;
+        // Read-only merged physical key ownership, including notes outside the displayed range.
+        public bool HasActiveMidiNotes
+        {
+            get
+            {
+                for (var note = 0; note < 128; ++note)
+                    if (m_State.IsPressed(note) || m_BleState.IsPressed(note)) return true;
+                return false;
+            }
+        }
         public KeyboardDisplayMode DisplayMode => m_Mode;
         public int MinNote => m_Mode == KeyboardDisplayMode.Research13Keys ? FirstNote : 21;
         public int MaxNote => m_Mode == KeyboardDisplayMode.Research13Keys ? LastNote : 108;

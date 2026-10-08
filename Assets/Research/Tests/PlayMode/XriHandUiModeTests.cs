@@ -153,6 +153,66 @@ namespace QuestPianoMotion.Research.Tests
             m_XrUi.UnregisterInteractor(interactor);
         }
 
+        [UnityTest]
+        public IEnumerator MidiDuringRaySelect_CancelsButtonAction()
+        {
+            var midiGo = new GameObject("Ray lock MIDI test", typeof(NetworkMidiInput));
+            var midi = midiGo.GetComponent<NetworkMidiInput>();
+            var button = m_Ui.transform.Find("HAND GPU").GetComponent<UnityEngine.UI.Button>();
+            var calls = 0;
+            button.onClick.AddListener(() => ++calls);
+            var end = ((RectTransform)button.transform).TransformPoint(((RectTransform)button.transform).rect.center);
+            var ray = new TestUiInteractor(m_Camera.transform.position, end);
+            m_XrUi.RegisterInteractor(ray);
+            try
+            {
+                yield return null; // Bind the newly created MIDI source and hover.
+                ray.Select = true;
+                yield return null;
+                var packet = new MidiPacket { EventType = MidiEventType.NoteOn, Channel = 1, Note = 60, Velocity = 90 };
+                midi.Enqueue(in packet);
+                midi.FlushPending();
+                Assert.That(m_Ui.Safety.Locked, Is.True);
+                ray.Select = false;
+                yield return null;
+                Assert.That(calls, Is.Zero, "Release after a MIDI lock must not activate the pressed button.");
+            }
+            finally { m_XrUi.UnregisterInteractor(ray); Object.Destroy(midiGo); }
+        }
+
+        [UnityTest]
+        public IEnumerator ConfirmationModal_BlocksUnderlyingRayAndAcceptsExplicitConfirm()
+        {
+            var calls = 0;
+            m_Ui.Safety.Run("Reconnect", () => ++calls, true);
+            var underlying = m_Ui.transform.Find("HAND GPU").GetComponent<UnityEngine.UI.Button>();
+            var underlyingCalls = 0;
+            underlying.onClick.AddListener(() => ++underlyingCalls);
+            var end = ((RectTransform)underlying.transform).TransformPoint(((RectTransform)underlying.transform).rect.center);
+            var ray = new TestUiInteractor(m_Camera.transform.position, end);
+            m_XrUi.RegisterInteractor(ray);
+            yield return null;
+            ray.Select = true;
+            yield return null;
+            ray.Select = false;
+            yield return null;
+            Assert.That(underlyingCalls, Is.Zero);
+            Assert.That(calls, Is.Zero);
+            m_XrUi.UnregisterInteractor(ray);
+
+            var confirm = (RectTransform)m_Ui.transform.Find("UI operation confirmation/CONFIRM");
+            end = confirm.TransformPoint(confirm.rect.center);
+            ray = new TestUiInteractor(m_Camera.transform.position, end);
+            m_XrUi.RegisterInteractor(ray);
+            yield return null;
+            ray.Select = true;
+            yield return null;
+            ray.Select = false;
+            yield return null;
+            Assert.That(calls, Is.EqualTo(1));
+            m_XrUi.UnregisterInteractor(ray);
+        }
+
         sealed class TestUiInteractor : IUIInteractor
         {
             readonly Vector3 m_Start;

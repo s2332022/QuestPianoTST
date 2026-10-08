@@ -124,6 +124,16 @@ namespace QuestPianoMotion.Research.Distributed
                 Quaternion.LookRotation(forward, Vector3.up));
         }
 
+        // World metres, with KeyboardRoot +X lateral, +Y normal, +Z rear/depth.
+        // Keep the existing shared PlaceUi behavior for other/diagnostic scenes.
+        public static void PlacePerformanceUi(Transform target, Vector3 keyboardCenterWorld,
+            Quaternion keyboardRotation)
+        {
+            target.SetPositionAndRotation(keyboardCenterWorld +
+                keyboardRotation * new Vector3(0.15f, 0.40f, 0.30f),
+                keyboardRotation * Quaternion.Euler(30f, 0f, 0f));
+        }
+
         public static void PlacePiano(Transform target, Camera camera, XROrigin origin = null)
         {
             var forward = HorizontalForward(camera, origin);

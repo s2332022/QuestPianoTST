@@ -50,6 +50,7 @@ namespace QuestPianoMotion.Research.Tests
                 EditorSceneManager.CloseScene(scene, true);
             }
         }
+        [Test]
         public void QuestScene_ContainsOneStandardRightHandUiPathAndDisabledLegacyPath()
         {
             var scene = EditorSceneManager.OpenScene("Assets/Research/Scenes/PianoDistributedQuest.unity", OpenSceneMode.Additive);
