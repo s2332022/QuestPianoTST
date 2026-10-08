@@ -114,5 +114,118 @@ namespace QuestPianoMotion.Research.Tests
         }
 
         static int FindFreePort(){using(var transport=new UdpTransport()){transport.Start(0);var port=transport.LocalPort;transport.Stop();return port;}}
+
+        [UnityTest]
+        public IEnumerator BleSessionAndUdpBothDriveSharedViewsAndDisconnectOnlyOwnedNotes()
+        {
+            var host = new GameObject("shared MIDI keyboard", typeof(VirtualPianoKeyboard), typeof(NetworkMidiInput));
+            var bleObject = new GameObject("separate BLE source", typeof(BleMidiInput));
+            var keyboard = host.GetComponent<VirtualPianoKeyboard>(); var udp = host.GetComponent<NetworkMidiInput>();
+            var ble = bleObject.GetComponent<BleMidiInput>(); keyboard.BindBleMidi(ble);
+            udp.MessageReceived += m => keyboard.ApplyMidi(in m);
+            var session = (BleMidiSession)typeof(BleMidiInput).GetField("m_Session", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).GetValue(ble);
+            session.Begin(1, "BLE actual session");
+            void BlePacket(byte status, byte note, byte velocity)
+            {
+                Assert.That(new BleMidiPacketParser().Parse(new byte[] { 0x80, 0x81, status, note, velocity }, 1, 123, s => session.Enqueue(s)), Is.True);
+                session.Flush();
+            }
+            void UdpEvent(MidiEventType type, byte note, byte velocity)
+            {
+                var packet = new MidiPacket { Header = new PacketHeader(PacketType.Midi, 1, 1, Guid.Empty, 18), EventIndex = 1,
+                    EventType = type, Channel = 1, Note = note, Velocity = velocity, Control = 255 };
+                udp.Enqueue(in packet); udp.FlushPending();
+            }
+            try
+            {
+                yield return null;
+                Assert.That(keyboard.TryGetKey(60, out var key), Is.True);
+                UdpEvent(MidiEventType.NoteOn, 60, 100); Assert.That(key.Pressed, Is.True);
+                UdpEvent(MidiEventType.NoteOff, 60, 0); Assert.That(key.Pressed, Is.False);
+                BlePacket(0x90, 60, 100); Assert.That(key.Pressed, Is.True);
+                BlePacket(0x80, 60, 7); Assert.That(key.Pressed, Is.False);
+                BlePacket(0x90, 60, 100); BlePacket(0x90, 60, 0); Assert.That(key.Pressed, Is.False);
+                UdpEvent(MidiEventType.NoteOn, 60, 100); BlePacket(0x90, 60, 100); BlePacket(0x90, 61, 90);
+                Assert.That(key.Renderer.transform.localPosition, Is.EqualTo(key.PressedLocalPosition));
+                ble.Disconnect(); Assert.That(key.Pressed, Is.True); Assert.That(udp.IsConnected, Is.True);
+                Assert.That(keyboard.TryGetKey(61, out var bleOnly), Is.True); Assert.That(bleOnly.Pressed, Is.False);
+                UdpEvent(MidiEventType.NoteOff, 60, 0); Assert.That(key.Pressed, Is.False);
+                session.Begin(1, "BLE reconnect"); BlePacket(0x90, 60, 100);
+                UdpEvent(MidiEventType.NoteOn, 60, 100); udp.Disconnect(); Assert.That(key.Pressed, Is.True);
+                Assert.That(keyboard.State.IsPressed(60), Is.False); // existing UDP state remains source-specific
+                ble.enabled = false; Assert.That(key.Pressed, Is.False);
+            }
+            finally { UnityEngine.Object.Destroy(host); UnityEngine.Object.Destroy(bleObject); }
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator QuestCompositionBindsSeparateBleObjectAndCleansUpOnDisable()
+        {
+            var host = new GameObject("composition MIDI keyboard", typeof(VirtualPianoKeyboard), typeof(DistributedQuestComposition));
+            var source = new GameObject("composition BLE source", typeof(BleMidiInput));
+            try
+            {
+                yield return null;
+                var keyboard = host.GetComponent<VirtualPianoKeyboard>();
+                var ble = source.GetComponent<BleMidiInput>();
+                var session = (BleMidiSession)typeof(BleMidiInput).GetField("m_Session", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).GetValue(ble);
+                session.Begin(1, "BLE composition"); session.Enqueue(new BleMidiSession.Sample(1, 0, 123, 0x90, 60, 100)); session.Flush();
+                Assert.That(keyboard.TryGetKey(60, out var key), Is.True); Assert.That(key.Pressed, Is.True);
+                host.GetComponent<DistributedQuestComposition>().enabled = false; Assert.That(key.Pressed, Is.False);
+                host.GetComponent<DistributedQuestComposition>().enabled = true; yield return null;
+                session.Enqueue(new BleMidiSession.Sample(1, 0, 124, 0x80, 60, 0)); session.Enqueue(new BleMidiSession.Sample(1, 0, 125, 0x90, 60, 90)); session.Flush();
+                Assert.That(key.Pressed, Is.True); ble.Disconnect(); Assert.That(key.Pressed, Is.False);
+            }
+            finally { UnityEngine.Object.Destroy(host); UnityEngine.Object.Destroy(source); }
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator UdpHandshakeAndMidiDatagramsDriveActualQuestClientKeyViews()
+        {
+            using var sender = new UdpTransport(); sender.Start(0);
+            var host = new GameObject("actual Quest UDP keyboard"); host.SetActive(false);
+            var settings = host.AddComponent<DistributedSettings>(); settings.pcIpAddress = "127.0.0.1";
+            settings.pcReceivePort = sender.LocalPort; settings.questReceivePort = FindFreePort(); settings.clockSyncPort = FindFreePort();
+            settings.connectionTimeoutSeconds = 5f; settings.heartbeatIntervalSeconds = .1f;
+            var keyboard = host.AddComponent<VirtualPianoKeyboard>(); host.AddComponent<NetworkMidiInput>();
+            var client = host.AddComponent<DistributedQuestClient>(); host.SetActive(true);
+            var bytes = new byte[NetworkProtocolV1.MaximumDatagramBytes]; uint instance = 0; var id = Guid.NewGuid();
+            try
+            {
+                var deadline = Time.realtimeSinceStartup + 3f;
+                while (Time.realtimeSinceStartup < deadline && instance == 0)
+                {
+                    while (sender.TryDequeue(out var datagram))
+                    {
+                        try { if (NetworkProtocolV1.TryReadStartupHello(datagram.Data, datagram.Length, out var hello)) instance = hello.InstanceId; }
+                        finally { sender.Recycle(datagram); }
+                    }
+                    yield return null;
+                }
+                Assert.That(instance, Is.Not.Zero);
+                var endpoint = new IPEndPoint(IPAddress.Loopback, settings.questReceivePort);
+                var n = NetworkProtocolV1.WriteStartupAck(bytes, 1, ResearchServices.Clock.AbsoluteSeconds, id, instance);
+                Assert.That(sender.Send(bytes, n, endpoint), Is.True);
+                deadline = Time.realtimeSinceStartup + 2f;
+                while (!client.PcConnected && Time.realtimeSinceStartup < deadline) yield return null;
+                Assert.That(client.PcConnected, Is.True);
+                Assert.That(keyboard.TryGetKey(60, out var key), Is.True);
+                foreach (var type in new[] { MidiEventType.NoteOn, MidiEventType.NoteOff })
+                {
+                    var on = type == MidiEventType.NoteOn;
+                    var message = new MidiMessage(12, on ? 1 : 2, "PC test", type, 1, 60, on ? 100 : 0, -1, -1);
+                    n = NetworkProtocolV1.WriteMidi(bytes, on ? 2u : 3u, 12, id, in message, 0);
+                    Assert.That(sender.Send(bytes, n, endpoint), Is.True);
+                    deadline = Time.realtimeSinceStartup + 2f;
+                    while (key.Pressed != on && Time.realtimeSinceStartup < deadline) yield return null;
+                    Assert.That(key.Pressed, Is.EqualTo(on));
+                    Assert.That(key.Renderer.transform.localPosition, Is.EqualTo(on ? key.PressedLocalPosition : key.RestLocalPosition));
+                }
+            }
+            finally { client.StopNetwork(); UnityEngine.Object.Destroy(host); }
+            yield return null;
+        }
     }
 }

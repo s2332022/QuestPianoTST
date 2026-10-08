@@ -129,6 +129,7 @@ namespace QuestPianoMotion.Research.Distributed
         Camera m_PassthroughCamera;
         ARCameraManager m_PassthroughCameraManager;
         Coroutine m_PassthroughStartup;
+        Coroutine m_BleMidiBinding;
         string m_LastCameraSubsystemLookupError;
         const float PassthroughStartTimeoutSeconds = 2f;
         const string CompositionLayerTypeName = "Unity.XR.CompositionLayers.CompositionLayer";
@@ -154,6 +155,7 @@ namespace QuestPianoMotion.Research.Distributed
         {
             m_Hands = GetComponent<XRHandPoseProvider>();
             m_Keyboard = GetComponent<VirtualPianoKeyboard>();
+            StartBleMidiBinding();
             m_Calibration = GetComponent<PianoCalibrationManager>();
             m_Visualizer = GetComponent<MinimalHandVisualizer>();
             m_PlacementGate = new QuestHmdPoseGate(Time.realtimeSinceStartupAsDouble);
@@ -186,6 +188,45 @@ namespace QuestPianoMotion.Research.Distributed
             }
         }
 
+        void OnEnable()
+        {
+            if (m_Keyboard != null) StartBleMidiBinding();
+        }
+
+        void StartBleMidiBinding()
+        {
+            if (m_Keyboard != null && m_BleMidiBinding == null)
+                m_BleMidiBinding = StartCoroutine(BindSceneBleMidi());
+        }
+
+        IEnumerator BindSceneBleMidi()
+        {
+            while (true)
+            {
+                BleMidiInput input = null;
+                foreach (var root in gameObject.scene.GetRootGameObjects())
+                {
+                    input = root.GetComponentInChildren<BleMidiInput>(true);
+                    if (input != null) break;
+                }
+                if (input != null)
+                {
+                    m_Keyboard.BindBleMidi(input);
+                    Debug.Log("[QuestMidi] BLE MessageReceived -> shared VirtualPianoKeyboard key views", this);
+                    while (input != null) yield return null;
+                    m_Keyboard.BindBleMidi(null);
+                }
+                yield return null;
+            }
+        }
+
+        void StopBleMidiBinding()
+        {
+            if (m_BleMidiBinding != null) StopCoroutine(m_BleMidiBinding);
+            m_BleMidiBinding = null;
+            m_Keyboard?.BindBleMidi(null);
+        }
+
         IEnumerator PlaceDefaultKeyboardWhenHeadReady()
         {
             Camera camera;
@@ -204,6 +245,7 @@ namespace QuestPianoMotion.Research.Distributed
 
         void OnDestroy()
         {
+            StopBleMidiBinding();
             if (m_Calibration != null && m_Keyboard != null)
             {
                 m_Calibration.CalibrationChanged -= m_Keyboard.ApplyCalibration;
@@ -215,6 +257,7 @@ namespace QuestPianoMotion.Research.Distributed
 
         void OnDisable()
         {
+            StopBleMidiBinding();
             m_Calibration?.CancelCapture();
             EndPassthroughSession("Composition disabled");
         }

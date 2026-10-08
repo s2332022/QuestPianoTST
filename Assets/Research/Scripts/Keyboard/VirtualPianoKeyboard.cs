@@ -72,6 +72,9 @@ namespace QuestPianoMotion.Research
         public const float BaseWhiteKeyHeightMeters = 0.018f;
         readonly Dictionary<int, PianoKeyView> m_Keys = new Dictionary<int, PianoKeyView>(88);
         readonly KeyboardStateTracker m_State = new KeyboardStateTracker();
+        // Keep existing UDP state/snapshot/log semantics; merge source ownership only for views.
+        readonly KeyboardStateTracker m_BleState = new KeyboardStateTracker();
+        Distributed.IMidiInput m_BleInput;
         const float WhiteKeySeparatorWidthMeters = 0.0012f;
         const float WhiteKeySeparatorHeightMeters = 0.0002f;
         const float WhiteKeySeparatorCenterAboveTopMeters = 0.00025f;
@@ -99,15 +102,48 @@ namespace QuestPianoMotion.Research
         {
             BuildKeyboard();
             m_State.StateChanged += OnStateChanged;
+            m_BleState.StateChanged += OnBleStateChanged;
         }
 
         void OnDestroy()
         {
+            BindBleMidi(null);
+            m_BleState.StateChanged -= OnBleStateChanged;
             m_State.StateChanged -= OnStateChanged;
             if (m_SharedMaterial != null) Destroy(m_SharedMaterial);
         }
 
         public void ApplyMidi(in MidiMessage message) => m_State.Apply(in message);
+
+        public void BindBleMidi(Distributed.IMidiInput input)
+        {
+            if (ReferenceEquals(m_BleInput, input)) return;
+            if (m_BleInput != null) m_BleInput.MessageReceived -= OnBleMidi;
+            m_BleInput = input;
+            m_BleState.Reset(ResearchServices.Clock.AbsoluteSeconds);
+            if (m_BleInput != null) m_BleInput.MessageReceived += OnBleMidi;
+        }
+
+        void OnBleMidi(MidiMessage message)
+        {
+            if (message.EventType == MidiEventType.NoteOn && message.Velocity == 0 &&
+                message.Channel >= 1 && message.Channel <= 16)
+                message = AndroidMidiInput.NormalizeMessage(message.AbsoluteTimeSeconds, message.EventIndex,
+                    message.DeviceName, 0x90 | (message.Channel - 1), message.NoteNumber, 0);
+            m_BleState.Apply(in message);
+        }
+
+        void OnBleStateChanged(KeyboardStateChange change) => ApplyKeyVisual(change.NoteNumber);
+
+        void ApplyKeyVisual(int note)
+        {
+            if (!m_Keys.TryGetValue(note, out var key)) return;
+            var pressed = m_State.IsPressed(note) || m_BleState.IsPressed(note);
+            var velocity = pressed ? Math.Max(m_State.Velocity(note), m_BleState.Velocity(note)) : 0;
+            // Idempotent absolute-position animation even with simultaneous same-note inputs.
+            if (key.Pressed != pressed || key.Velocity != velocity) key.Apply(pressed, velocity);
+        }
+
 
         public void SetCalibrationTransparency(bool enabled)
         {
@@ -189,8 +225,7 @@ namespace QuestPianoMotion.Research
 
         void OnStateChanged(KeyboardStateChange change)
         {
-            if (m_Keys.TryGetValue(change.NoteNumber, out var key))
-                key.Apply(change.Pressed, change.Velocity);
+            ApplyKeyVisual(change.NoteNumber);
             StateChanged?.Invoke(change);
         }
 
@@ -272,7 +307,7 @@ namespace QuestPianoMotion.Research
                     if (hasPreviousWhiteKey) CreateWhiteKeySeparator(go.transform);
                     hasPreviousWhiteKey = true;
                 }
-                if (m_State.IsPressed(note)) key.Apply(true, m_State.Velocity(note));
+                ApplyKeyVisual(note);
                 if (m_CalibrationTransparency) key.SetOpacity(0.35f);
             }
             UpdateWhiteKeySeparatorVisuals();

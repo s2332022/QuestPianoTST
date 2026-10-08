@@ -287,5 +287,88 @@ namespace QuestPianoMotion.Research.Tests
             }
             finally { Object.DestroyImmediate(host); }
         }
+
+        sealed class BleViewTestInput : IMidiInput
+        {
+            public event System.Action<MidiMessage> MessageReceived;
+            public event System.Action DevicesChanged { add { } remove { } }
+            public IReadOnlyList<MidiDeviceDescriptor> Devices => new MidiDeviceDescriptor[0];
+            public bool IsConnected => true;
+            public string ConnectedDeviceName => "BLE view test";
+            public string LastEventText => "";
+            public void RefreshDeviceList() { }
+            public bool SelectDevice(int index) => false;
+            public bool ConnectSelectedDevice() => true;
+            public void Disconnect() { }
+            public void Send(MidiEventType type, int note, int velocity, int channel = 1) =>
+                MessageReceived?.Invoke(new MidiMessage(123, 7, ConnectedDeviceName, type, channel, note, velocity, -1, -1));
+        }
+
+        [Test]
+        public void BleAndUdpViewsReuseAll88NoteMappingsAndReleaseIndependently()
+        {
+            var host = Create(out var keyboard); var ble = new BleViewTestInput();
+            try
+            {
+                keyboard.BindBleMidi(ble);
+                for (var note = 21; note <= 108; ++note)
+                {
+                    Assert.That(keyboard.TryGetKey(note, out var key), Is.True);
+                    Assert.That(key.MidiNoteNumber, Is.EqualTo(note));
+                    ble.Send(MidiEventType.NoteOn, note, 100);
+                    Assert.That(key.Pressed, Is.True); Assert.That(key.Renderer.transform.localPosition, Is.EqualTo(key.PressedLocalPosition));
+                    var on = new MidiMessage(1, 1, "UDP", MidiEventType.NoteOn, 1, note, 100, -1, -1);
+                    keyboard.ApplyMidi(in on); // same note never moves twice
+                    Assert.That(key.Renderer.transform.localPosition, Is.EqualTo(key.RestLocalPosition + Vector3.down * .008f));
+                    ble.Send(MidiEventType.NoteOff, note, 0);
+                    Assert.That(key.Pressed, Is.True);
+                    var off = new MidiMessage(2, 2, "UDP", MidiEventType.NoteOff, 1, note, 0, -1, -1);
+                    keyboard.ApplyMidi(in off);
+                    Assert.That(key.Pressed, Is.False); Assert.That(key.Renderer.transform.localPosition, Is.EqualTo(key.RestLocalPosition));
+                }
+                Assert.That(keyboard.TryGetKey(20, out _), Is.False); Assert.That(keyboard.TryGetKey(109, out _), Is.False);
+            }
+            finally { Object.DestroyImmediate(host); }
+        }
+
+        [Test]
+        public void BleZeroVelocityUnbindAndUdpSnapshotDoNotClearOtherSource()
+        {
+            var host = Create(out var keyboard); var ble = new BleViewTestInput();
+            try
+            {
+                keyboard.BindBleMidi(ble); keyboard.BindBleMidi(ble);
+                var udpChanges = 0; keyboard.StateChanged += _ => ++udpChanges;
+                ble.Send(MidiEventType.NoteOn, 60, 100); ble.Send(MidiEventType.NoteOn, 60, 0);
+                Assert.That(keyboard.TryGetKey(60, out var key), Is.True); Assert.That(key.Pressed, Is.False);
+                ble.Send(MidiEventType.NoteOn, 60, 90);
+                Assert.That(keyboard.State.ApplySnapshot(new byte[256], new byte[16], 2, out _, out _), Is.True);
+                Assert.That(key.Pressed, Is.True); Assert.That(keyboard.State.IsPressed(60), Is.False);
+                var on = new MidiMessage(3, 1, "UDP", MidiEventType.NoteOn, 1, 61, 100, -1, -1); keyboard.ApplyMidi(in on);
+                keyboard.BindBleMidi(null);
+                Assert.That(key.Pressed, Is.False); Assert.That(keyboard.TryGetKey(61, out var udpKey), Is.True); Assert.That(udpKey.Pressed, Is.True);
+                ble.Send(MidiEventType.NoteOn, 60, 100); Assert.That(key.Pressed, Is.False);
+                Assert.That(udpChanges, Is.EqualTo(1), "BLE visualization must not append events to the existing UDP research stream");
+            }
+            finally { Object.DestroyImmediate(host); }
+        }
+
+        [Test]
+        public void RebuildingDisplayRetainsBleNotesAndUnbindingRestoresUdpNotes()
+        {
+            var host = Create(out var keyboard); var ble = new BleViewTestInput();
+            try
+            {
+                keyboard.BindBleMidi(ble); ble.Send(MidiEventType.NoteOn, 60, 100);
+                keyboard.SetDisplayMode(KeyboardDisplayMode.Research13Keys);
+                Assert.That(keyboard.TryGetKey(60, out var key), Is.True); Assert.That(key.Pressed, Is.True);
+                keyboard.SetDisplayMode(KeyboardDisplayMode.Full88Keys);
+                Assert.That(keyboard.TryGetKey(60, out key), Is.True); Assert.That(key.Pressed, Is.True);
+                var on = new MidiMessage(3, 1, "UDP", MidiEventType.NoteOn, 1, 60, 90, -1, -1); keyboard.ApplyMidi(in on);
+                keyboard.BindBleMidi(null); Assert.That(key.Pressed, Is.True); Assert.That(key.Velocity, Is.EqualTo(90));
+                keyboard.State.Reset(4); Assert.That(key.Pressed, Is.False);
+            }
+            finally { Object.DestroyImmediate(host); }
+        }
     }
 }

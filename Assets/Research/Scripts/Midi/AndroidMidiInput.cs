@@ -190,7 +190,7 @@ namespace QuestPianoMotion.Research
                 ConnectedDeviceName);
         }
 
-        void Dispatch(double absoluteTime, int status, int data1, int data2, string deviceName)
+        public static MidiMessage NormalizeMessage(double absoluteTime, long eventIndex, string deviceName, int status, int data1, int data2)
         {
             var command = status & 0xF0;
             var channel = (status & 0x0F) + 1;
@@ -221,8 +221,19 @@ namespace QuestPianoMotion.Research
             {
                 type = MidiEventType.Other;
             }
-            var message = new MidiMessage(absoluteTime, ++m_EventIndex, deviceName, type, channel,
+            return new MidiMessage(absoluteTime, eventIndex, deviceName, type, channel,
                 note, velocity, control, value);
+        }
+
+        void Dispatch(double absoluteTime, int status, int data1, int data2, string deviceName)
+        {
+            var message = NormalizeMessage(absoluteTime, ++m_EventIndex, deviceName, status, data1, data2);
+            var type = message.EventType;
+            var control = message.ControlNumber;
+            var value = message.ControlValue;
+            var channel = message.Channel;
+            var note = message.NoteNumber;
+            var velocity = message.Velocity;
             LastEventText = type == MidiEventType.ControlChange
                 ? $"CC{control}={value} ch{channel}"
                 : $"{type} {note} v{velocity} ch{channel}";
