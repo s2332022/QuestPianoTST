@@ -45,3 +45,6 @@ Desktop.ini
 # Temporary files
 *.tmp
 sysinfo.txt
+
+# Python analysis bytecode
+/tools/__pycache__/

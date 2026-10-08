@@ -4,6 +4,7 @@
   "references": [
     "QuestPianoMotion.Research",
     "Unity.UGUI",
+    "Unity.XR.Hands",
     "Unity.XR.CoreUtils",
     "Unity.TextMeshPro",
     "Unity.InputSystem",

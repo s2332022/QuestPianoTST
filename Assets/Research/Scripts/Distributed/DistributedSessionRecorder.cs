@@ -113,7 +113,7 @@ namespace QuestPianoMotion.Research.Distributed
                     .Append(", \"scaleX\": ").Append(calibration.scaleX.ToString("R",CultureInfo.InvariantCulture))
                     .Append(", \"scaleZ\": ").Append(calibration.scaleZ.ToString("R",CultureInfo.InvariantCulture)).Append('}');
             }
-            b.Append(",\n  \"coordinate_system\": {\"world_space\": \"Unity world space, metres\", \"keyboard_space\": \"KeyboardRoot local space, metres before geometry scaling\", \"keyboard_local_positive_x\": \"right, from A toward B along keys\", \"keyboard_local_positive_y\": \"up from the key surface\", \"keyboard_local_positive_z\": \"rear, from A toward C along key depth\"}");
+            b.Append(",\n  \"coordinate_system\": {\"tracking_space_definition\": \"Raw XR Hands pose in Camera Floor Offset local space (ResearchServices.TrackingOrigin)\", \"world_space_definition\": \"TrackingOrigin.localToWorldMatrix times raw position\", \"keyboard_space_definition\": \"KeyboardRoot.worldToLocalMatrix times world position; lat=X, normal=Y, depth=Z\", \"world_space\": \"Unity world space, metres\", \"keyboard_space\": \"KeyboardRoot local space, metres before geometry scaling\", \"keyboard_local_positive_x\": \"right, from A toward B along keys\", \"keyboard_local_positive_y\": \"up from the key surface\", \"keyboard_local_positive_z\": \"rear, from A toward C along key depth\"}");
             var build=DistributedBuildInfo.Metadata;
             b.Append(",\n  \"runtime_versions\": {\"xr_hands\": ").Append(NullableQuoted(build.xr_hands_version))
                 .Append(", \"xr_interaction_toolkit\": ").Append(NullableQuoted(build.xr_interaction_toolkit_version))

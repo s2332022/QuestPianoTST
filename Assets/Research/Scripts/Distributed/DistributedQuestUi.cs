@@ -117,7 +117,7 @@ namespace QuestPianoMotion.Research.Distributed
                 $"Pose Send Rate: {m_Client.PoseSendRate:F1}/s\n" +
                 $"MIDI Receive Rate: {m_Client.MidiReceiveRate:F1}/s\n" +
                 $"Last MIDI Event: {m_Client.LastMidiEvent}\n" +
-                $"Session State: {m_Client.SessionState}";
+                $"Session State: {m_Client.SessionState} | RAW: {(m_Client.ResearchRecording ? "REC" : "IDLE")} {m_Client.ResearchLogError}";
         }
 
         IEnumerator PlaceWhenHeadPoseIsReady()
@@ -168,7 +168,7 @@ namespace QuestPianoMotion.Research.Distributed
             m_Canvas.renderMode = RenderMode.WorldSpace;
             m_Canvas.enabled = false;
             var rect = (RectTransform)transform;
-            rect.sizeDelta = new Vector2(720, 900);
+            rect.sizeDelta = new Vector2(720, 970);
             rect.localScale = Vector3.one * 0.0009f;
             gameObject.AddComponent<CanvasScaler>();
             m_CanvasGroup = gameObject.AddComponent<CanvasGroup>();
@@ -246,6 +246,8 @@ namespace QuestPianoMotion.Research.Distributed
             m_CalibrationStatus = CreateText("Calibration Capture Status", transform,
                 "Capture Hand: RIGHT\nNot calibrated", new Vector2(20, -790), new Vector2(680, 90),
                 23, TextAlignmentOptions.TopLeft, Color.white);
+            CreateButton("START RAW REC",new Vector2(20,-900),210,()=>m_Client?.BeginLocalResearchSession());
+            CreateButton("STOP RAW REC",new Vector2(260,-900),210,()=>m_Client?.EndLocalResearchSession());
             CreateHandCursor();
 
             var inputController = FindAnyObjectByType<XriHandUiInputController>(FindObjectsInactive.Include);

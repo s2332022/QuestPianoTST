@@ -163,6 +163,7 @@ namespace QuestPianoMotion.Research.Editor
             var metadata=new DistributedBuildInfo.BuildMetadata
             {
                 git_commit_hash=gitCommit,
+                git_branch=GitOutput("branch --show-current"),
                 git_dirty=gitStatus==null?null:(gitStatus.Length==0?"false":"true"),
                 xr_hands_version=PackageVersion("com.unity.xr.hands"),
                 xr_interaction_toolkit_version=PackageVersion("com.unity.xr.interaction.toolkit"),

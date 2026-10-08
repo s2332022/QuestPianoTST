@@ -13,6 +13,7 @@ namespace QuestPianoMotion.Research.Distributed
         public sealed class BuildMetadata
         {
             public string git_commit_hash;
+            public string git_branch;
             public string git_dirty;
             public string xr_hands_version;
             public string xr_interaction_toolkit_version;

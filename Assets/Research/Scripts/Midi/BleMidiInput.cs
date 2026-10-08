@@ -25,6 +25,7 @@ namespace QuestPianoMotion.Research
         string m_SelectedAddress = "", m_DeviceList = "", m_LastStatus = "";
         double m_NextPoll;
         public event Action<MidiMessage> MessageReceived;
+        public event Action<MidiMessage, BleMidiSession.Sample, double, bool> ResearchEvent;
         public event Action DevicesChanged;
         public IReadOnlyList<MidiDeviceDescriptor> Devices => m_Devices;
         public bool IsConnected { get; private set; }
@@ -203,6 +204,7 @@ namespace QuestPianoMotion.Research
         }
         void LogMessage(MidiMessage m, BleMidiSession.Sample s, double received, bool synthetic)
         {
+            ResearchEvent?.Invoke(m, s, received, synthetic);
             Write(new object[] { "event", s.Generation, ConnectionState, DeviceInfo, m.EventIndex, m.EventType, m.Channel,
                 m.NoteNumber, m.Velocity, m.ControlNumber, m.ControlValue, s.TimestampNanos, s.ReceivedNanos,
                 Number(m.AbsoluteTimeSeconds), Number(received), synthetic ? "none" : "Android_System.nanoTime",
