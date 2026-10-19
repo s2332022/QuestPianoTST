@@ -200,8 +200,10 @@ Unity 6000.5.10f1。集中EditMode/PlayMode → 全EditMode/PlayMode → 既存A
 | 全EditMode | 1,102合格、4スキップ、失敗0 |
 | 全PlayMode | 59/59合格、失敗0 |
 | Raw解析Python | 9/9合格 |
-| Android APK | BUILD_RESULT_PENDING |
-| Quest実機・実MIDI機器 | 未検証。ADB接続デバイスなし |
+| Android APK | 成功。IL2CPP / ARM64、52,172,918 bytes |
+| Quest 2更新インストール | 成功。既存研究/較正/接続設定3ファイルのSHA-256一致 |
+| Quest 2起動 | am start成功、プロセス生成とOpenXR初期化を確認。端末スリープによりウィンドウは一時停止 |
+| 実MIDI・手の描画・補正の目視 | 未検証。装着後の実打鍵と観察が必要 |
 
 全EditModeの4スキップは未導入Addressables設定を要する2件とUnix系OS限定2件。
 全EditMode後の変更は強度0/上限0の未適用理由コードの区別だけであり、集中33件と全PlayModeで再検証した。
@@ -210,12 +212,19 @@ Unity 6000.5.10f1。集中EditMode/PlayMode → 全EditMode/PlayMode → 既存A
 ビルドはPianoDistributedSceneBuilder.BuildAndroidValidationを使用する。
 PianoDistributedQuestシーンのみ、Android / IL2CPP / ARM64。
 出力：Builds/Android/PianoDistributedQuest.apk。既存ビルダーが設定と生成メタデータを復元する。
-実装コミットを記録してビルドする。既存未追跡ファイルを保持するため、ビルドメタデータのdirtyはtrueになり得る。
+ビルド元コミット：43322b43b2dbbf2266c2479117cbe75de3d0536d。
+更新日時：2026-10-19T19:28:55.961669+09:00。
+SHA-256：222c9a77da0c8f38bb6b24bfb0e6ae3d65110e7c6e25df55c7513ca8c5a2213d。
+APK内部でarm64-v8aのみ、libil2cpp.so、MidiTipCorrectionProcessorのメタデータ包含を確認した。
+追跡対象の設定と生成BuildMetadataがビルド前へ復元されたことを確認した。
+既存未追跡ファイルを保持するためビルドメタデータのdirtyはtrue。
+既存XR Simulation Temp資産の復元先衝突警告2件が出たが、ビルドは成功した。既存ファイルは保持し、削除しない。
 
 ## 実機未確認事項と次の作業
 
-ADBにQuest接続がないため、実BLE機器、Quest上の手の視認性、両眼表示、物理鍵盤との整合、
-自然さ、体感遅延、追跡復帰、長時間性能は合格扱いにしない。
+Quest 2のADB接続と更新導入を確認したが、端末はAsleepでアプリが一時停止している。
+実BLE機器、Quest上の手の視認性、両眼表示、物理鍵盤との整合、自然さ、体感遅延、追跡復帰、長時間性能は合格扱いにしない。
+装着して復帰し、必要なら提供元不明からQuestPianoMotionを起動して実験を実施する。
 
 APK導入後は右手人差し指のC4単音A/B/C、C#4、左右全5指、上限、NoteOff解除を観察する。
 較正中の停止、追跡喪失/復帰、BLE切断/再接続、UDP切断/復帰、NoteOff欠落、セッション終了も確認する。
