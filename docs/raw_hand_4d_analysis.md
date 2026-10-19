@@ -1,5 +1,7 @@
 # 4D Raw hand research logging and analysis
 
+Optional runtime MIDI display correction is documented separately in [midi_tip_correction.md](midi_tip_correction.md). The Raw pipeline and analysis described below remain uncorrected.
+
 ## Scope and reuse
 
 This phase records spatial coordinates x/y/z and a separate time value t. It never computes a four-dimensional Euclidean distance and never applies hand correction, IK, smoothing, MIDI attraction, wrist constraints, or pressed/nonpressed constraints.

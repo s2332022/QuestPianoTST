@@ -3,6 +3,7 @@
   "rootNamespace": "QuestPianoMotion.Research.Editor",
   "references": [
     "QuestPianoMotion.Research",
+    "Unity.XR.Hands",
     "Unity.InputSystem",
     "Unity.XR.CoreUtils",
     "Unity.XR.Interaction.Toolkit",

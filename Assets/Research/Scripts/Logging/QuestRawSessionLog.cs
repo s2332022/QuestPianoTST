@@ -100,7 +100,10 @@ namespace QuestPianoMotion.Research.Distributed
                 // Create files before accepting events; fail Begin if storage is unavailable.
                 var files=new[]{OpenTracked(opened,"quest_hand_raw.csv","session_id,quest_timestamp_sec,unity_frame,callback_index,update_type,hand,hand_tracked,joint_id,joint_name,pose_valid,tracking_state,position_x,position_y,position_z,rotation_x,rotation_y,rotation_z,rotation_w,snapshot_id,success_flags"),
                     OpenTracked(opened,"quest_midi_research.csv","session_id,source,quest_receive_timestamp_sec,sender_timestamp_sec,ble_timestamp_13bit_ms,connection_generation,event_index,event_type,channel,note,velocity,control,value,synthetic,snapshot_id,quest_observed_timestamp_sec"),
-                    OpenTracked(opened,"transform_snapshots.jsonl",null)};
+                    OpenTracked(opened,"transform_snapshots.jsonl",null),
+                    OpenTracked(opened,"quest_tip_correction.csv", "session_id,quest_timestamp_sec,unity_frame,callback_index,update_type,source,event_index,event_type,note,channel,connection_generation,quest_receive_timestamp_sec,quest_observed_timestamp_sec,hand,finger,selection_mode,coordinate_space,position_unit,raw_x,raw_y,raw_z,corrected_x,corrected_y,corrected_z,key_id,planar_distance_before_m,planar_distance_after_m,normal_residual_before_m,normal_residual_after_m,delta_x,delta_y,delta_z,delta_m,state,gain,configured_strength,effective_strength,max_correction_m,cap_applied,reach_limited,hand_tracked,coordinates_valid,geometry_valid,snapshot_id,calibration_id,reason,enabled,planar_tolerance_m,below_tolerance_m,above_tolerance_m,contact_offset_x,contact_offset_y,contact_offset_z,engage_s,release_s,max_hold_s")};
+                File.WriteAllText(Path.Combine(DirectoryPath,"tip_correction_metadata.json"),
+                    "{\"version\":1,\"coordinate_space\":\"KeyboardRootLocal\",\"unit\":\"metres\",\"clock\":\"same Quest Stopwatch as raw callback; MIDI receive and Unity observation are distinct\",\"geometry\":\"rest cube tops; white top excludes black rest footprints; virtual 8mm animation is not measured physical displacement\",\"metric\":\"model display consistency, not absolute hand position error; signed normal residual includes configured Tip-to-contact offset\",\"pairing\":\"same raw callback time/index; invalid coordinates are blank; join transform_snapshots.jsonl by snapshot_id; join quest_midi_research.csv by source/event_index/generation\"}");
                 writer=new Thread(()=>WriteLoop(files)){IsBackground=true,Name="Quest raw research writer"};writer.Start();
                 Recording=true;Enqueue(2,JsonUtility.ToJson(snapshot));return true;
             }
@@ -183,6 +186,29 @@ namespace QuestPianoMotion.Research.Distributed
             var type=m.EventType==MidiEventType.NoteOn&&m.Velocity==0?MidiEventType.NoteOff:m.EventType;
             Enqueue(1,string.Join(",",session,source,N(received),N(m.AbsoluteTimeSeconds),bleTimestamp<0?"":bleTimestamp.ToString(F),generation,m.EventIndex,type,m.Channel,m.NoteNumber,m.Velocity,m.ControlNumber,m.ControlValue,synthetic,snapshot.snapshot_id,N(observed)));
         }
+        public void RecordCorrection(HandPoseFrame raw,TipCorrectionSample sample,MidiTipCorrectionSettings settings,
+            VirtualPianoKeyboard keyboard,string calibrationId)
+        {
+            if(raw.UpdateType!=XRHandSubsystem.UpdateType.Dynamic||!EnsureSnapshot(keyboard,raw.AbsoluteTimeSeconds))return;
+            var coordinates=sample.CoordinatesValid;
+            var metrics=coordinates&&sample.GeometryValid;
+            string C(float v)=>coordinates?N(v):"";
+            string M(float v)=>metrics?N(v):"";
+            var p=sample.RawKeyboard;var q=sample.CorrectedKeyboard;var d=sample.DeltaKeyboard;
+            var o=settings.tipToContactKeyboardMeters;
+            Enqueue(3,string.Join(",",session,N(raw.AbsoluteTimeSeconds),raw.UnityFrame,raw.CallbackIndex,raw.UpdateType,
+                sample.Source??"",sample.EventIndex,sample.EventType??"",sample.Note,sample.Channel,sample.Generation,
+                sample.Source==null?"":N(sample.ReceivedTime),sample.Source==null?"":N(sample.ObservedTime),
+                sample.Left?"Left":"Right",sample.Finger,settings.selectionMode,"KeyboardRootLocal","m",
+                C(p.x),C(p.y),C(p.z),C(q.x),C(q.y),C(q.z),sample.GeometryValid?"Key_"+sample.Note:"",
+                M(sample.BeforeDistance),M(sample.AfterDistance),M(sample.BeforeNormal),M(sample.AfterNormal),
+                C(d.x),C(d.y),C(d.z),C(d.magnitude),sample.State,N(sample.Gain),N(settings.strength),N(sample.EffectiveStrength),
+                N(settings.maxCorrectionMeters),sample.Capped,sample.ReachLimited,sample.Tracked,coordinates,sample.GeometryValid,
+                snapshot.snapshot_id,Csv(calibrationId),sample.Reason??"",settings.enabled,N(settings.planarToleranceMeters),
+                N(settings.belowSurfaceToleranceMeters),N(settings.aboveSurfaceToleranceMeters),N(o.x),N(o.y),N(o.z),
+                N(settings.engageSeconds),N(settings.releaseSeconds),N(settings.maxHoldSeconds)));
+        }
+        static string Csv(string value)=>"\""+(value??"").Replace("\"","\"\"")+"\"";
         void Enqueue(int file,string text)
         {
             if(!queue.TryAdd(new Entry(file,text))){Interlocked.Increment(ref overflows);error="Research queue overflow; session incomplete";}

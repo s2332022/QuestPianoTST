@@ -102,6 +102,34 @@ namespace QuestPianoMotion.Research
         public int MaxNote => m_Mode == KeyboardDisplayMode.Research13Keys ? LastNote : 108;
         public int KeyCount => MaxNote - MinNote + 1;
         public bool TryGetKey(int note, out PianoKeyView key) => m_Keys.TryGetValue(note, out key);
+        public bool TryGetRestKeyBounds(int note, out Bounds bounds)
+        {
+            bounds = default;
+            if (!TryGetKey(note, out var key) || KeyboardRoot == null || KeyboardGeometry == null) return false;
+            var matrix = KeyboardRoot.worldToLocalMatrix * KeyboardGeometry.localToWorldMatrix;
+            var size = key.Renderer.transform.localScale;
+            for (var i = 0; i < 8; ++i)
+            {
+                var corner = key.RestLocalPosition + Vector3.Scale(size, new Vector3(
+                    (i & 1) == 0 ? -.5f : .5f, (i & 2) == 0 ? -.5f : .5f, (i & 4) == 0 ? -.5f : .5f));
+                var point = matrix.MultiplyPoint3x4(corner);
+                if (i == 0) bounds = new Bounds(point, Vector3.zero); else bounds.Encapsulate(point);
+            }
+            return DisplayFingerSolver.Finite(bounds.min) && DisplayFingerSolver.Finite(bounds.max);
+        }
+
+        public bool TryGetKeySurface(int note, out PianoKeySurface surface)
+        {
+            surface = null;
+            if (!TryGetRestKeyBounds(note, out var bounds) || !TryGetKey(note, out var key)) return false;
+            surface = new PianoKeySurface(note, key.IsBlack, bounds);
+            if (!key.IsBlack)
+                foreach (var other in m_Keys.Values)
+                    if (other.IsBlack && TryGetRestKeyBounds(other.MidiNoteNumber, out var black))
+                        surface.Exclude(Rect.MinMaxRect(black.min.x, black.min.z, black.max.x, black.max.z));
+            return surface.Regions.Count > 0;
+        }
+
         public bool CalibrationTransparency => m_CalibrationTransparency;
         public Transform KeyboardRoot { get; private set; }
         public Transform KeyboardGeometry { get; private set; }

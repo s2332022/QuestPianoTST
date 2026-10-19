@@ -7,7 +7,8 @@ namespace QuestPianoMotion.Research
     public enum HandVisualizationMode
     {
         GameObjectsDiagnostic,
-        GpuInstanced
+        GpuInstanced,
+        SkinnedMesh
     }
 
     [DisallowMultipleComponent]

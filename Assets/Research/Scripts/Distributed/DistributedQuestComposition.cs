@@ -170,6 +170,7 @@ namespace QuestPianoMotion.Research.Distributed
                 m_Keyboard.ConfigureMinimal(piano.transform);
 
             m_Visualizer?.Initialize(m_Hands);
+            InstallDisplayHandMeshes();
             var diagnostics = GetComponent<QuestSpatialDiagnostics>();
             if (diagnostics == null)
                 diagnostics = gameObject.AddComponent<QuestSpatialDiagnostics>();
@@ -186,6 +187,24 @@ namespace QuestPianoMotion.Research.Distributed
                 else
                     StartCoroutine(PlaceDefaultKeyboardWhenHeadReady());
             }
+        }
+
+        void InstallDisplayHandMeshes()
+        {
+            var available = true;
+            foreach (var side in new[] { "Left", "Right" })
+            {
+                var prefab = Resources.Load<GameObject>("CorrectionHands/" + side + "DisplayHand");
+                if (prefab == null)
+                {
+                    Debug.LogError("Display hand mesh missing: " + side + ". Run Prepare Correction Hand Mesh Assets.", this);
+                    available = false;
+                    continue;
+                }
+                var instance = Instantiate(prefab, transform, false);
+                instance.GetComponent<DisplayHandSkeleton>().Initialize(m_Hands, m_Visualizer);
+            }
+            if (available) m_Visualizer?.SetMode(HandVisualizationMode.SkinnedMesh);
         }
 
         void OnEnable()

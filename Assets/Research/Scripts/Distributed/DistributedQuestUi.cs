@@ -24,6 +24,7 @@ namespace QuestPianoMotion.Research.Distributed
         PianoCalibrationManager m_Calibration;
         MinimalHandVisualizer m_Visualizer;
         VirtualPianoKeyboard m_Keyboard;
+        TMP_Text m_CorrectionStatus;
         TMP_Text m_KeyboardModeLabel;
         TMP_Text m_CaptureAButtonLabel;
         TMP_Text m_CancelCaptureButtonLabel;
@@ -109,6 +110,7 @@ namespace QuestPianoMotion.Research.Distributed
             if (Time.unscaledTime < m_NextUpdate || m_Client == null || m_Status == null)
                 return;
             m_NextUpdate = Time.unscaledTime + 0.25f;
+            UpdateCorrectionStatus();
             var visual = m_Visualizer != null
                 ? $"{m_Visualizer.Mode} events={m_Visualizer.DisplayEventCount} tracked=({m_Visualizer.LeftTracked},{m_Visualizer.RightTracked}) valid=({m_Visualizer.LeftValidJointCount},{m_Visualizer.RightValidJointCount})"
                 : "Unavailable";
@@ -296,6 +298,7 @@ namespace QuestPianoMotion.Research.Distributed
                 new Vector2(20, -440), new Vector2(680, 26), 19,
                 TextAlignmentOptions.MidlineLeft, new Color(1f, 0.85f, 0.35f));
             Safety.SetStatusText(safetyStatus);
+            BuildCorrectionControls();
             CreateHandCursor();
 
             var inputController = FindAnyObjectByType<XriHandUiInputController>(FindObjectsInactive.Include);
@@ -303,6 +306,43 @@ namespace QuestPianoMotion.Research.Distributed
 
             if (m_EnableLegacyTextFallback)
                 CreateLegacyFallback();
+        }
+
+        void BuildCorrectionControls()
+        {
+            var panel = new GameObject("MIDI Tip Correction Panel", typeof(RectTransform), typeof(Image));
+            panel.transform.SetParent(transform, false);
+            var rect = (RectTransform)panel.transform;
+            rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0, 1);
+            rect.anchoredPosition = new Vector2(740, -20); rect.sizeDelta = new Vector2(490, 720);
+            panel.GetComponent<Image>().color = new Color(.03f, .06f, .1f, .96f);
+            panel.GetComponent<Image>().raycastTarget = false;
+            m_CorrectionStatus = CreateText("MIDI Tip Correction Status", transform, "MIDI TIP CORRECTION",
+                new Vector2(760,-40),new Vector2(450,170),22,TextAlignmentOptions.TopLeft,Color.white);
+            MidiTipCorrectionSettings Config() => m_Client != null ? m_Client.CorrectionSettings : null;
+            CreateButton("CORRECTION ON/OFF",new Vector2(760,-220),220,()=>{var c=Config();if(c!=null)c.enabled=!c.enabled;});
+            CreateButton("LEFT / RIGHT",new Vector2(990,-220),210,()=>{var c=Config();if(c!=null)c.leftHand=!c.leftHand;});
+            CreateButton("NEXT FINGER",new Vector2(760,-280),220,()=>{var c=Config();if(c!=null)c.finger=(CorrectionFinger)(((int)c.finger+1)%5);});
+            CreateButton("HAND MESH",new Vector2(990,-280),210,()=>m_Visualizer?.SetMode(HandVisualizationMode.SkinnedMesh));
+            CreateButton("STRENGTH -0.25",new Vector2(760,-340),220,()=>{var c=Config();if(c!=null)c.strength=Mathf.Clamp01(c.strength-.25f);});
+            CreateButton("STRENGTH +0.25",new Vector2(990,-340),210,()=>{var c=Config();if(c!=null)c.strength=Mathf.Clamp01(c.strength+.25f);});
+            CreateButton("MAX -5 mm",new Vector2(760,-400),220,()=>{var c=Config();if(c!=null)c.maxCorrectionMeters=Mathf.Max(0,c.maxCorrectionMeters-.005f);});
+            CreateButton("MAX +5 mm",new Vector2(990,-400),210,()=>{var c=Config();if(c!=null)c.maxCorrectionMeters=Mathf.Min(.03f,c.maxCorrectionMeters+.005f);});
+            CreateButton("PAD Y -1 mm",new Vector2(760,-460),220,()=>{var c=Config();if(c!=null)c.tipToContactKeyboardMeters.y=Mathf.Max(-.03f,c.tipToContactKeyboardMeters.y-.001f);});
+            CreateButton("PAD Y +1 mm",new Vector2(990,-460),210,()=>{var c=Config();if(c!=null)c.tipToContactKeyboardMeters.y=Mathf.Min(.03f,c.tipToContactKeyboardMeters.y+.001f);});
+            CreateButton("Y BAND -1 mm",new Vector2(760,-520),220,()=>{var c=Config();if(c!=null){c.belowSurfaceToleranceMeters=Mathf.Max(0,c.belowSurfaceToleranceMeters-.001f);c.aboveSurfaceToleranceMeters=Mathf.Max(0,c.aboveSurfaceToleranceMeters-.001f);}});
+            CreateButton("Y BAND +1 mm",new Vector2(990,-520),210,()=>{var c=Config();if(c!=null){c.belowSurfaceToleranceMeters+=.001f;c.aboveSurfaceToleranceMeters+=.001f;}});
+            CreateText("Correction Instructions",transform,"C4-C5 single notes / manual finger\nA: OFF   B: ON   C: strength comparison\nStart/Stop RAW REC to save paired CSV.\nRelease notes and pinch before changing settings.",
+                new Vector2(760,-590),new Vector2(450,120),20,TextAlignmentOptions.TopLeft,Color.white);
+        }
+        void UpdateCorrectionStatus()
+        {
+            if(m_CorrectionStatus==null||m_Client==null)return;
+            var c=m_Client.CorrectionSettings;var latest=m_Client.Correction!=null?m_Client.Correction.Latest:default;
+            m_CorrectionStatus.text=$"MIDI TIP: {(c.enabled?"ON":"OFF")} / {(c.leftHand?"LEFT":"RIGHT")} {c.finger}\n"+
+                $"Strength {c.strength:F2} / max {c.maxCorrectionMeters*1000:F0} mm\n"+
+                $"Pad Y {c.tipToContactKeyboardMeters.y*1000:F0} mm / band -{c.belowSurfaceToleranceMeters*1000:F0},+{c.aboveSurfaceToleranceMeters*1000:F0} mm\n"+
+                $"{latest.State} / note {latest.Note} / {latest.DeltaKeyboard.magnitude*1000:F1} mm\n{latest.Reason}";
         }
 
         void UpdatePassthroughFailureActions()
