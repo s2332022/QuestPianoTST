@@ -77,6 +77,8 @@ namespace QuestPianoMotion.Research.Tests
             Assert.That(m_Ui.XriRaycaster.enabled, Is.True);
             Assert.That(m_Ui.LegacyRaycaster.enabled, Is.False);
             Assert.That(m_Ui.HandCursor.gameObject.activeSelf, Is.False);
+            m_Ui.ShowDetails(true, 3);
+            Assert.That(m_Ui.HandInputDiagnosticText.gameObject.activeSelf, Is.False, "Legacy diagnostics have no live data in XRI mode.");
         }
 
         [Test]
@@ -89,6 +91,8 @@ namespace QuestPianoMotion.Research.Tests
             Assert.That(m_Controller.BothInputModesActive, Is.False);
             Assert.That(m_Ui.LegacyRaycaster.enabled, Is.True);
             Assert.That(m_Ui.XriRaycaster.enabled, Is.False);
+            m_Ui.ShowDetails(true, 3);
+            Assert.That(m_Ui.HandInputDiagnosticText.gameObject.activeSelf, Is.True);
         }
 
         [Test]

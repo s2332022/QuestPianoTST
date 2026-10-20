@@ -122,6 +122,7 @@ namespace QuestPianoMotion.Research.Distributed
             foreach(var pair in m_DetailItems)
                 if(pair.Key!=null)pair.Key.SetActive(pair.Value<0?!m_Compact:m_Details&&pair.Value==m_Page);
             foreach(var tab in m_Tabs)tab.SetActive(m_Details);
+            m_HandInputDiagnostic.gameObject.SetActive(m_Details && m_Page == 3 && m_LegacyRaycaster.enabled);
             var toggle=Child("TIP ON / OFF");if(toggle!=null)toggle.gameObject.SetActive(!m_Compact);
             m_CorrectionStatus.gameObject.SetActive(!m_Compact);
             // Header and recovery controls remain available in compact mode.
