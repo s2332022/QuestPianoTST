@@ -48,6 +48,7 @@ namespace QuestPianoMotion.Research.Tests
             m_Controller.ApplyMode();
             yield return null;
             m_Ui.PlaceAtCamera(m_Camera);
+            m_Ui.ShowDetails(true, 0);
             Canvas.ForceUpdateCanvases();
             yield return null;
         }
@@ -213,11 +214,42 @@ namespace QuestPianoMotion.Research.Tests
             m_XrUi.UnregisterInteractor(ray);
         }
 
+        [UnityTest]
+        public IEnumerator StandardXriRay_DragsHandleAndReleasesAtNewPosition()
+        {
+            m_Ui.ShowDetails(false);
+            var handle=(RectTransform)m_Ui.transform.Find("Move Panel Handle");
+            var ray=new TestUiInteractor(m_Camera.transform.position,handle.TransformPoint(handle.rect.center));
+            m_XrUi.RegisterInteractor(ray);
+            try
+            {
+                yield return null;
+                var start=m_Ui.transform.position;
+                ray.Select=true;yield return null;
+                Assert.That(m_Ui.FloatingPanel.Moving,Is.True,"XRUIInputModule must select the handle.");
+                Assert.That(Vector3.Distance(start,m_Ui.transform.position),Is.LessThan(.0001f));
+                ray.Offset(Vector3.right*.15f);
+                yield return new WaitForSecondsRealtime(.35f);
+                Assert.That(m_Ui.transform.position.x,Is.GreaterThan(start.x+.1f));
+                ray.Select=false;yield return null;
+                Assert.That(m_Ui.FloatingPanel.Moving,Is.False);
+                var stopped=m_Ui.transform.position;
+                yield return new WaitForSecondsRealtime(.1f);
+                Assert.That(m_Ui.transform.position,Is.EqualTo(stopped));
+                ray.Select=true;yield return null;
+                Assert.That(m_Ui.FloatingPanel.Moving,Is.True,"Ray hit must still work after movement.");
+                ray.Tracked=false;yield return null;yield return null;
+                Assert.That(m_Ui.FloatingPanel.Moving,Is.False,"Tracking loss must release the panel.");
+            }
+            finally { m_XrUi.UnregisterInteractor(ray); }
+        }
+
         sealed class TestUiInteractor : IUIInteractor
         {
-            readonly Vector3 m_Start;
-            readonly Vector3 m_End;
+            Vector3 m_Start;
+            Vector3 m_End;
 
+            public void Offset(Vector3 delta) { m_Start += delta; m_End += delta; }
             public bool Select { get; set; }
             public bool Tracked { get; set; } = true;
 

@@ -59,7 +59,7 @@ namespace QuestPianoMotion.Research.Tests
         [TestCase(0f)]
         [TestCase(90f)]
         [TestCase(180f)]
-        public void Placement_UsesWorldMetresKeyboardAxesAndThirtyDegreeTilt(float yaw)
+        public void Placement_UsesWorldMetresKeyboardAxesAndUprightPanel(float yaw)
         {
             var go = new GameObject("Performance UI placement test");
             try
@@ -69,10 +69,10 @@ namespace QuestPianoMotion.Research.Tests
                 QuestSpatialPlacement.PlacePerformanceUi(go.transform, center, rotation);
                 var offset = Quaternion.Inverse(rotation) * (go.transform.position - center);
                 Assert.That(offset, Is.EqualTo(new Vector3(.15f, .4f, .3f)).Using(new Vector3EqualityComparer(.00001f)));
-                Assert.That(Quaternion.Angle(go.transform.rotation, rotation * Quaternion.Euler(30, 0, 0)), Is.LessThan(.001f));
+                Assert.That(Quaternion.Angle(go.transform.rotation, rotation), Is.LessThan(.001f));
                 var bottom = go.transform.position - go.transform.up * (970 * .00065f / 2);
                 var localBottom = Quaternion.Inverse(rotation) * (bottom - center);
-                Assert.That(localBottom.y, Is.GreaterThan(.12f));
+                Assert.That(localBottom.y, Is.GreaterThan(.08f));
                 Assert.That(localBottom.z, Is.GreaterThan(.14f));
             }
             finally { Object.DestroyImmediate(go); }

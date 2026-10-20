@@ -12,7 +12,7 @@ using UnityEngine.XR.Interaction.Toolkit.UI;
 namespace QuestPianoMotion.Research.Distributed
 {
     [DisallowMultipleComponent]
-    public sealed class DistributedQuestUi : MonoBehaviour
+    public sealed partial class DistributedQuestUi : MonoBehaviour
     {
         const string FontResourcePath = "Fonts & Materials/LiberationSans SDF";
         const int MaxIpLength = 15;
@@ -41,6 +41,7 @@ namespace QuestPianoMotion.Research.Distributed
         string m_EditingIp;
         string m_DefaultIp;
         TMP_FontAsset m_Font;
+        TMP_FontAsset m_JapaneseFont;
         TMP_Text m_HandInputDiagnostic;
         RectTransform m_HandCursor;
         Image m_HandCursorImage;
@@ -52,9 +53,6 @@ namespace QuestPianoMotion.Research.Distributed
         QuestHmdPoseGate m_PlacementGate;
         float m_NextUpdate;
         public PerformanceUiSafety Safety { get; private set; }
-        Vector3 m_LastKeyboardCenter;
-        Quaternion m_LastKeyboardRotation;
-        bool m_HasKeyboardAnchor;
 
         public bool HasBeenPlaced { get; private set; }
         public TMP_FontAsset FontAsset => m_Font;
@@ -90,11 +88,8 @@ namespace QuestPianoMotion.Research.Distributed
         void Update()
         {
             if (m_Keyboard == null) m_Keyboard = FindAnyObjectByType<VirtualPianoKeyboard>();
-            // Follow calibration/rebuild changes only; do not make the panel head-locked.
-            if (HasBeenPlaced && TryGetKeyboardAnchor(out var center, out var rotation) &&
-                (!m_HasKeyboardAnchor || (center - m_LastKeyboardCenter).sqrMagnitude > 0.000001f ||
-                 Quaternion.Angle(rotation, m_LastKeyboardRotation) > 0.01f))
-                PlaceAtKeyboard(center, rotation);
+            FloatingPanel?.SetReference(m_Calibration != null && m_Calibration.Current != null && m_Calibration.Current.valid
+                && m_Keyboard != null ? m_Keyboard.KeyboardRoot : null, m_Calibration?.Current?.calibrationId);
             if (m_CalibrationStatus != null && m_Calibration != null)
             {
                 var message = m_Calibration.StatusText;
@@ -111,11 +106,12 @@ namespace QuestPianoMotion.Research.Distributed
                 return;
             m_NextUpdate = Time.unscaledTime + 0.25f;
             UpdateCorrectionStatus();
+            UpdateOverview();
             var visual = m_Visualizer != null
                 ? $"{m_Visualizer.Mode} events={m_Visualizer.DisplayEventCount} tracked=({m_Visualizer.LeftTracked},{m_Visualizer.RightTracked}) valid=({m_Visualizer.LeftValidJointCount},{m_Visualizer.RightValidJointCount})"
                 : "Unavailable";
             m_Status.text =
-                "QUEST UI TEST 123\n" +
+                "QUEST DIAGNOSTICS\n" +
                 (m_Client.PcConnected ? "PC CONNECTED\n" : "PC DISCONNECTED\n") +
                 $"Connected at: {m_Client.ConnectedAt:F3}\n" +
                 $"Last received: {m_Client.LastReceivedTimestamp:F3} s (age {m_Client.LastReceivedAge:F2} s)\n" +
@@ -129,7 +125,8 @@ namespace QuestPianoMotion.Research.Distributed
                 $"Pose Send Rate: {m_Client.PoseSendRate:F1}/s\n" +
                 $"MIDI Receive Rate: {m_Client.MidiReceiveRate:F1}/s\n" +
                 $"Last MIDI Event: {m_Client.LastMidiEvent}\n" +
-                $"Session State: {m_Client.SessionState} | RAW: {(m_Client.ResearchRecording ? "REC" : "IDLE")} {m_Client.ResearchLogError}";
+                $"Session State: {m_Client.SessionState} | RAW: {(m_Client.ResearchRecording ? "REC" : "IDLE")} {m_Client.ResearchLogError}\n" +
+                $"Correction detail: {m_Client.Correction?.Latest.Reason}";
         }
 
         IEnumerator PlaceWhenHeadPoseIsReady()
@@ -142,57 +139,26 @@ namespace QuestPianoMotion.Research.Distributed
 
         public void RecenterUi()
         {
-            if (m_PlacementGate != null &&
-                m_PlacementGate.TryGetReadyCamera(Time.realtimeSinceStartupAsDouble, out var camera))
-                PlaceAtCamera(camera, m_PlacementGate.UsedFallback);
+            var camera = m_Canvas != null ? m_Canvas.worldCamera : null;
+            if (camera == null) camera = Camera.main;
+            if (camera == null) return;
+            FloatingPanel.SetCamera(camera);
+            FloatingPanel.PlaceInFront();
         }
 
         public void PlaceAtCamera(Camera camera, bool fallback = false)
         {
-            if (camera == null || m_Canvas == null)
-                return;
-            var xrOrigin = FindAnyObjectByType<XROrigin>();
-            if (transform.parent != null)
-                transform.SetParent(null, false);
-            if (TryGetKeyboardAnchor(out var center, out var rotation))
-                PlaceAtKeyboard(center, rotation);
-            else
-                QuestSpatialPlacement.PlacePerformanceUi(transform,
-                    camera.transform.position + QuestSpatialPlacement.HorizontalForward(camera, xrOrigin) * 0.75f + Vector3.down * 0.35f,
-                    Quaternion.LookRotation(QuestSpatialPlacement.HorizontalForward(camera, xrOrigin), Vector3.up));
+            if (camera == null || m_Canvas == null) return;
+            if (transform.parent != null) transform.SetParent(null, true);
             m_Canvas.worldCamera = camera;
-            if (m_IpKeyboardCanvas != null)
-                m_IpKeyboardCanvas.worldCamera = camera;
+            if (m_IpKeyboardCanvas != null) m_IpKeyboardCanvas.worldCamera = camera;
+            FloatingPanel.SetCamera(camera);
+            FloatingPanel.SetReference(m_Calibration != null && m_Calibration.Current != null && m_Calibration.Current.valid
+                && m_Keyboard != null ? m_Keyboard.KeyboardRoot : null, m_Calibration?.Current?.calibrationId);
+            if (!HasBeenPlaced && FloatingPanel.Restore()) { }
+            else FloatingPanel.PlaceInFront(false);
             m_Canvas.enabled = true;
             HasBeenPlaced = true;
-            Debug.Log($"[QuestPlacement] UI placed fallback={fallback} cameraRelative={camera.transform.InverseTransformPoint(transform.position)}", this);
-        }
-
-        bool TryGetKeyboardAnchor(out Vector3 center, out Quaternion rotation)
-        {
-            center = default;
-            rotation = Quaternion.identity;
-            if (m_Keyboard == null || m_Keyboard.KeyboardGeometry == null) return false;
-            var minX = float.PositiveInfinity;
-            var maxX = float.NegativeInfinity;
-            for (var note = m_Keyboard.MinNote; note <= m_Keyboard.MaxNote; ++note)
-                if (m_Keyboard.TryGetKey(note, out var key) && !key.IsBlack)
-                {
-                    minX = Mathf.Min(minX, key.RestLocalPosition.x);
-                    maxX = Mathf.Max(maxX, key.RestLocalPosition.x);
-                }
-            if (!float.IsFinite(minX)) return false;
-            center = m_Keyboard.KeyboardGeometry.TransformPoint(new Vector3((minX + maxX) * 0.5f, 0f, 0f));
-            rotation = m_Keyboard.KeyboardRoot.rotation;
-            return true;
-        }
-
-        void PlaceAtKeyboard(Vector3 center, Quaternion rotation)
-        {
-            QuestSpatialPlacement.PlacePerformanceUi(transform, center, rotation);
-            m_LastKeyboardCenter = center;
-            m_LastKeyboardRotation = rotation;
-            m_HasKeyboardAnchor = true;
         }
 
         void Build()
@@ -208,6 +174,7 @@ namespace QuestPianoMotion.Research.Distributed
                 return;
             }
 
+            m_JapaneseFont = QuestUiFontFallback.Acquire(m_Font);
             m_Canvas = gameObject.AddComponent<Canvas>();
             m_Canvas.renderMode = RenderMode.WorldSpace;
             m_Canvas.enabled = false;
@@ -299,6 +266,7 @@ namespace QuestPianoMotion.Research.Distributed
                 TextAlignmentOptions.MidlineLeft, new Color(1f, 0.85f, 0.35f));
             Safety.SetStatusText(safetyStatus);
             BuildCorrectionControls();
+            BuildFloatingLayout();
             CreateHandCursor();
 
             var inputController = FindAnyObjectByType<XriHandUiInputController>(FindObjectsInactive.Include);
@@ -366,6 +334,7 @@ namespace QuestPianoMotion.Research.Distributed
                 m_IpKeyboardRaycaster.enabled = useXri;
             if (m_HandInputDiagnostic != null)
                 m_HandInputDiagnostic.gameObject.SetActive(!useXri);
+            ApplyLayout();
             if (useXri && m_HandCursor != null)
                 m_HandCursor.gameObject.SetActive(false);
         }
@@ -390,7 +359,8 @@ namespace QuestPianoMotion.Research.Distributed
             text.color = color;
             text.alignment = alignment;
             text.raycastTarget = false;
-            text.overflowMode = TextOverflowModes.Overflow;
+            text.overflowMode = TextOverflowModes.Ellipsis;
+            text.richText = false;
             return text;
         }
 
@@ -427,7 +397,7 @@ namespace QuestPianoMotion.Research.Distributed
             keyboardCanvasRect.pivot = new Vector2(0.5f, 0.5f);
             // Keep the 430-unit keypad outside the 720-unit main panel.
             // Both canvases inherit the same world placement and safety CanvasGroup.
-            keyboardCanvasRect.anchoredPosition3D = new Vector3(650f, -40f, -8f);
+            keyboardCanvasRect.anchoredPosition3D = new Vector3(0f, -150f, -8f);
             keyboardCanvasRect.sizeDelta = new Vector2(430f, 390f);
             keyboardCanvasRect.localRotation = Quaternion.identity;
             keyboardCanvasRect.localScale = Vector3.one;
@@ -750,6 +720,7 @@ namespace QuestPianoMotion.Research.Distributed
         void OnDestroy()
         {
             m_Calibration?.CancelCapture();
+            if (m_JapaneseFont != null) QuestUiFontFallback.Release();
             if (m_HandCursorSprite != null)
                 Destroy(m_HandCursorSprite);
             if (m_HandCursorTexture != null)

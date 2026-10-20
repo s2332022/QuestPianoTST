@@ -131,7 +131,7 @@ namespace QuestPianoMotion.Research.Distributed
         {
             target.SetPositionAndRotation(keyboardCenterWorld +
                 keyboardRotation * new Vector3(0.15f, 0.40f, 0.30f),
-                keyboardRotation * Quaternion.Euler(30f, 0f, 0f));
+                Quaternion.LookRotation(Vector3.ProjectOnPlane(keyboardRotation * Vector3.forward, Vector3.up).normalized, Vector3.up));
         }
 
         public static void PlacePiano(Transform target, Camera camera, XROrigin origin = null)

@@ -145,7 +145,7 @@ namespace QuestPianoMotion.Research.Tests
         }
 
         [UnityTest]
-        public IEnumerator CalibrationChanges_ReanchorWorldPanel_WithoutMovingKeyboard()
+        public IEnumerator CalibrationChanges_DoNotMoveUserPanelOrKeyboard()
         {
             var cameraGo = new GameObject("Safety placement camera", typeof(Camera));
             try
@@ -160,7 +160,7 @@ namespace QuestPianoMotion.Research.Tests
                 Assert.That(Vector3.Distance(before, m_Ui.transform.position), Is.LessThan(.00001f), "Not head-locked.");
                 root.position += Vector3.right;
                 yield return null;
-                Assert.That(Vector3.Distance(before + Vector3.right, m_Ui.transform.position), Is.LessThan(.00001f));
+                Assert.That(Vector3.Distance(before, m_Ui.transform.position), Is.LessThan(.00001f));
                 Assert.That(root.position, Is.EqualTo(new Vector3(3, 1, 4)));
                 Assert.That(m_Ui.transform.localScale.x, Is.EqualTo(.00065f));
             }

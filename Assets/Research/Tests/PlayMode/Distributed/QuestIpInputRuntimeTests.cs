@@ -118,7 +118,7 @@ namespace QuestPianoMotion.Research.Tests
         }
 
         [UnityTest]
-        public IEnumerator Keyboard_UsesSingleIndependentCanvasOutsideResearchUi()
+        public IEnumerator Keyboard_UsesSingleIndependentCanvasAsCenteredPopup()
         {
             Assert.That(m_Ui.IpKeyboardCanvas, Is.Not.Null);
             Assert.That(m_Ui.IpKeyboardRaycaster, Is.Not.Null);
@@ -128,7 +128,7 @@ namespace QuestPianoMotion.Research.Tests
             var researchRect = m_Ui.WorldCanvas.GetComponent<RectTransform>();
             var keyboardRect = m_Ui.IpKeyboardRect;
             Assert.That(keyboardRect.localPosition.x,
-                Is.GreaterThan(researchRect.rect.width * 0.5f + keyboardRect.rect.width * 0.5f));
+                Is.EqualTo(0f).Within(.001f));
             Assert.That(keyboardRect.localPosition.z, Is.LessThan(0f));
             Assert.That(m_Ui.IpKeyboardCanvas.GetComponentsInChildren<Canvas>(true), Has.Length.EqualTo(1));
             Assert.That(m_Ui.IpKeyboardCanvas.GetComponentsInChildren<Button>(true), Has.Length.EqualTo(15));

@@ -44,7 +44,7 @@ namespace QuestPianoMotion.Research.Tests
             Assert.That(ui.StatusText.rectTransform.rect.width, Is.GreaterThan(0f));
             Assert.That(ui.StatusText.rectTransform.rect.height, Is.GreaterThan(0f));
             Assert.That(uiObject.GetComponentsInChildren<Mask>(true), Is.Empty);
-            Assert.That(uiObject.GetComponentsInChildren<RectMask2D>(true), Is.Empty);
+            Assert.That(uiObject.GetComponentsInChildren<RectMask2D>(true).Length, Is.EqualTo(2), "Diagnostics and calibration use masked scroll views.");
 
             var required = new[] { "RECENTER UI", "HAND GAMEOBJECTS", "HAND GPU" };
             var buttons = uiObject.GetComponentsInChildren<Button>(true);

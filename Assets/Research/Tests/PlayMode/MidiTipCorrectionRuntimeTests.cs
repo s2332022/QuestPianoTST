@@ -18,6 +18,48 @@ namespace QuestPianoMotion.Research.Tests
         static readonly BindingFlags Private=BindingFlags.Instance|BindingFlags.NonPublic;
         static void Origin(Transform t)=>typeof(ResearchServices).GetProperty("TrackingOrigin").GetSetMethod(true).Invoke(null,new object[]{t});
         [UnityTest]
+        public IEnumerator FloatingUiModesAndPlacementPreserveCorrectionNetworkAndRawSession()
+        {
+            var previous=ResearchServices.TrackingOrigin;
+            var origin=new GameObject("UI regression origin");Origin(origin.transform);
+            var runtime=new GameObject("UI regression runtime",typeof(VirtualPianoKeyboard),typeof(XRHandPoseProvider),typeof(PianoCalibrationManager));
+            var settings=runtime.AddComponent<DistributedSettings>();settings.questReceivePort=0;
+            var client=runtime.AddComponent<DistributedQuestClient>();
+            var cameraGo=new GameObject("UI regression camera",typeof(Camera));
+            var uiGo=new GameObject("UI regression panel",typeof(RectTransform),typeof(DistributedQuestUi));
+            string sessionPath=null;
+            try
+            {
+                yield return null;
+                var ui=uiGo.GetComponent<DistributedQuestUi>();ui.PlaceAtCamera(cameraGo.GetComponent<Camera>());
+                var config=client.CorrectionSettings;config.enabled=true;config.leftHand=true;config.finger=CorrectionFinger.Middle;
+                config.strength=.75f;config.maxCorrectionMeters=.015f;
+                var before=JsonUtility.ToJson(config);
+                Assert.That(client.BeginLocalResearchSession(),Is.True);sessionPath=client.ResearchSessionPath;
+                Assert.That(client.NetworkRunning,Is.True);
+                ui.ShowDetails(true,2);ui.SetCompact(true);ui.SetCompact(false);ui.ShowDetails(false);
+                ui.RecenterUi();ui.FloatingPanel.AdjustDistance(.1f);ui.FloatingPanel.FaceUser();
+                yield return new WaitForSecondsRealtime(.3f);
+                Assert.That(ui.transform.Find("Performance Overview").GetComponent<TMPro.TMP_Text>().text,Does.Contain("RAW: REC"));
+                Assert.That(ui.transform.Find("MIDI Tip Correction Status").GetComponent<TMPro.TMP_Text>().text,Does.Contain("LEFT"));
+                Assert.That(client.CorrectionSettings,Is.SameAs(config));Assert.That(JsonUtility.ToJson(config),Is.EqualTo(before));
+                Assert.That(client.ResearchRecording,Is.True);Assert.That(client.ResearchSessionPath,Is.EqualTo(sessionPath));
+                Assert.That(client.NetworkRunning,Is.True);Assert.That(client.ResearchLogError,Is.Empty);
+            }
+            finally
+            {
+                client.EndLocalResearchSession();
+                UnityEngine.Object.DestroyImmediate(uiGo);UnityEngine.Object.DestroyImmediate(cameraGo);
+                UnityEngine.Object.DestroyImmediate(runtime);UnityEngine.Object.DestroyImmediate(origin);Origin(previous);
+                if(sessionPath!=null)
+                {
+                    var resolved=Path.GetFullPath(sessionPath);
+                    var allowed=Path.GetFullPath(Application.persistentDataPath)+Path.DirectorySeparatorChar;
+                    if(resolved.StartsWith(allowed,StringComparison.OrdinalIgnoreCase)&&Directory.Exists(resolved))Directory.Delete(resolved,true);
+                }
+            }
+        }
+        [UnityTest]
         public IEnumerator BleObservationMovesOfficialSkinnedMeshAndPairedLogPreservesRaw()
         {
             var previous=ResearchServices.TrackingOrigin;
@@ -49,7 +91,8 @@ namespace QuestPianoMotion.Research.Tests
                 session.Flush();
                 Assert.That(client.Correction.State,Is.EqualTo(TipCorrectionState.Engaging));
                 var stop=Time.realtimeSinceStartup+.13f;
-                while(Time.realtimeSinceStartup<stop)
+                // A first rendered frame may exceed this duration; still evaluate a later pose timestamp.
+                for(var frames=0;frames<2||Time.realtimeSinceStartup<stop;frames++)
                 {
                     raw.AbsoluteTimeSeconds=ResearchServices.Clock.AbsoluteSeconds;raw.CallbackIndex++;
                     typeof(DistributedQuestClient).GetMethod("OnRawFrame",Private).Invoke(client,new object[]{raw});
@@ -77,7 +120,7 @@ namespace QuestPianoMotion.Research.Tests
                 session.Enqueue(new BleMidiSession.Sample(7,0,0,0x80,60,0));session.Flush();
                 Assert.That(client.Correction.State,Is.EqualTo(TipCorrectionState.Releasing));
                 var deadline=Time.realtimeSinceStartup+.15f;
-                while(Time.realtimeSinceStartup<deadline)
+                for(var frames=0;frames<2||Time.realtimeSinceStartup<deadline;frames++)
                 {
                     raw.AbsoluteTimeSeconds=ResearchServices.Clock.AbsoluteSeconds;
                     client.Correction.Process(raw,display);hand.Apply(display);yield return null;

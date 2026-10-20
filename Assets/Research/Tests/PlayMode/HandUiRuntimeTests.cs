@@ -35,6 +35,7 @@ namespace QuestPianoMotion.Research.Tests
             m_Module = m_EventObject.GetComponent<MinimalHandUiInputModule>();
             yield return null;
             m_Ui.PlaceAtCamera(m_Camera);
+            m_Ui.ShowDetails(true, 3);
             m_Module.ConfigureForTests(m_Camera, m_Ui);
             m_Module.ConfigurePinch(false, 0.025f, 0.035f);
             Canvas.ForceUpdateCanvases();
@@ -169,7 +170,7 @@ namespace QuestPianoMotion.Research.Tests
         public void Cursor_IsWhiteOnUiYellowOnButtonGreenDuringPinchAndBlueAfterClick()
         {
             var canvasRect = (RectTransform)m_Ui.WorldCanvas.transform;
-            var emptyUiPoint = canvasRect.TransformPoint(new Vector3(300f, 300f, 0f));
+            var emptyUiPoint = canvasRect.TransformPoint(new Vector3(330f, 600f, 0f));
             Sample(emptyUiPoint, 0.040f);
             Assert.That(m_Ui.HandCursor.gameObject.activeSelf, Is.True);
             AssertColor(m_Ui.HandCursorImage.color, Color.white);

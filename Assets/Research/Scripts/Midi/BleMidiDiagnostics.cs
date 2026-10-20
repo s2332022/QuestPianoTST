@@ -55,6 +55,8 @@ namespace QuestPianoMotion.Research
             Button(rect, ui.FontAsset, "CONNECT", 215, -485, () => m_Input.ConnectSelectedDevice(), true);
             Button(rect, ui.FontAsset, "DISCONNECT", 415, -485, m_Input.Disconnect, true);
             Text("Help", rect, ui.FontAsset, new Vector2(215, -550), new Vector2(390, 85), "Select an address before CONNECT.\nDirect GATT; manual reconnect.\nMIDI drives keyboard and research logs.", 18);
+            DistributedQuestUi.MakeScrollable(m_Status.rectTransform);
+            ui.RegisterBlePanel(rect);
         }
         void Update()
         {
