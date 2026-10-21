@@ -7,12 +7,12 @@ namespace QuestPianoMotion.Research
     {
         public bool valid, limited;
         public Vector3 rawTip, correctedTip;
-        public float boneError, angularViolationDegrees, targetResidual, penetration, interference;
+        public float boneError, angularViolationDegrees, targetResidual, rawPenetration, penetration, rawInterference, interference;
     }
 
     /// <summary>Bounded, preallocated hand-wide projected CCD. All solver positions: TrackingOriginLocal metres.
     /// Never writes Raw, wrist, palm, metacarpals or the fixed chain anchors.</summary>
-    public sealed class RuleHandPoseSolver
+    public sealed partial class RuleHandPoseSolver
     {
         readonly Vector3[,] raw=new Vector3[5,4], p=new Vector3[5,4], candidate=new Vector3[5,4];
         readonly Vector3[,] rawAxes=new Vector3[5,3];
@@ -33,6 +33,7 @@ namespace QuestPianoMotion.Research
             float[] weights, RuleHandPoseSettings settings, float commonLimit)
         {
             Iterations=0;MaximumBoneError=0;Reason="solved";
+            for(var f=0;f<5;f++){environmentTarget[f]=Vector3.zero;contactWeight[f]=Mathf.Clamp01(weights[f]);}
             for(var f=0;f<5;f++)Metrics[f]=default;
             if(!settings.IsValid || !float.IsFinite(commonLimit) || commonLimit<0) {Reason="invalid_settings";return;}
             var source=left?input.LeftJoints:input.RightJoints;var dest=left?display.LeftJoints:display.RightJoints;
@@ -145,9 +146,5 @@ namespace QuestPianoMotion.Research
                 for(var k=j+1;k<4;k++)p[f,k]+=offset;
             }
         }
-        // Environmental coupling is added independently in Phase 2.
-        void PrepareEnvironment(RuleHandPoseSettings settings) { }
-        Vector3 EnvironmentPush(int f,RuleHandPoseSettings settings)=>Vector3.zero;
-        void FinishEnvironment(RuleHandPoseSettings settings) { }
     }
 }

@@ -8,6 +8,27 @@ namespace QuestPianoMotion.Research.Tests
 {
     public sealed class RuleHandPoseRuntimeTests
     {
+        [UnityTest] public IEnumerator EnvironmentCacheTracksOriginChangesWithoutMovingKeyboard()
+        {
+            var root=new GameObject("Rule runtime keyboard",typeof(VirtualPianoKeyboard));
+            var origin=new GameObject("Rule runtime tracking");
+            try
+            {
+                var keyboard=root.GetComponent<VirtualPianoKeyboard>();var geometry=new RuleKeyboardGeometry();
+                yield return null;
+                var keyboardPosition=keyboard.KeyboardRoot.position;
+                Assert.That(geometry.Refresh(keyboard,origin.transform),Is.True);
+                var before=geometry.Surface(61).Height;
+                origin.transform.position=new Vector3(.1f,.2f,.3f);
+                Assert.That(geometry.Refresh(keyboard,origin.transform),Is.True);
+                Assert.That(geometry.TrackingToKeyboard.MultiplyPoint3x4(Vector3.zero),Is.EqualTo(keyboard.KeyboardRoot.InverseTransformPoint(origin.transform.position)));
+                Assert.That(keyboard.KeyboardRoot.position,Is.EqualTo(keyboardPosition));
+                Assert.That(geometry.Surface(61).Height,Is.EqualTo(before));
+                origin.transform.localScale=new Vector3(2,1,1);
+                Assert.That(geometry.Refresh(keyboard,origin.transform),Is.False);
+            }
+            finally{Object.DestroyImmediate(root);Object.DestroyImmediate(origin);}
+        }
         [UnityTest] public IEnumerator FiveFingerSolverRunsAcrossDynamicFramesWithoutChangingRaw()
         {
             var n=(int)XRHandJointID.EndMarker-(int)XRHandJointID.BeginMarker;
