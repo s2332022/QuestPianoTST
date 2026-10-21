@@ -69,6 +69,8 @@ namespace QuestPianoMotion.Research.Tests
             var t=new Vector3[5];var w=new float[5];var s=new RuleHandPoseSettings();
             var solver=new RuleHandPoseSolver();solver.Solve(r,d,false,t,w,s,.02f);
             Assert.That(solver.Metrics[1].valid,Is.False);
+            Assert.That(d.FindJoint(false,XRHandJointID.IndexTip).PoseValid,Is.False);
+            Assert.That(DisplayFingerSolver.Finite(d.FindJoint(false,XRHandJointID.IndexTip).Pose.position),Is.True);
             Assert.That(DisplayFingerSolver.Finite(d.FindJoint(false,XRHandJointID.MiddleTip).Pose.position),Is.True);
             s.fingers[0].maximumBendDegrees.x=float.NaN;
             solver.Solve(r,d,false,t,w,s,.02f);Assert.That(solver.Reason,Is.EqualTo("invalid_settings"));

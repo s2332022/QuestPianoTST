@@ -24,10 +24,35 @@ namespace QuestPianoMotion.Research
         public int Iterations { get; private set; }
         public float MaximumBoneError { get; private set; }
         public string Reason { get; private set; }
+        public readonly float[] FrozenFactors=new float[5], TemporalRadians=new float[5];
+        public readonly Quaternion[,] FrozenRotations=new Quaternion[5,3], PreviousRotations=new Quaternion[5,3];
+        public readonly float[,] JointDisplacementLimits=new float[5,4];
+        public RuleHandPoseSolver()
+        {
+            for(var f=0;f<5;f++)
+            {
+                FrozenFactors[f]=-1;TemporalRadians[f]=float.PositiveInfinity;
+                for(var j=0;j<4;j++)JointDisplacementLimits[f,j]=float.PositiveInfinity;
+                for(var j=0;j<3;j++)FrozenRotations[f,j]=PreviousRotations[f,j]=Quaternion.identity;
+            }
+        }
         public static XRHandJointID First(int finger)=>finger==0?XRHandJointID.ThumbMetacarpal:
             (XRHandJointID)((int)DisplayFingerSolver.Tip((CorrectionFinger)finger)-3);
         public static bool Finite(Quaternion q)=>float.IsFinite(q.x)&&float.IsFinite(q.y)&&float.IsFinite(q.z)&&float.IsFinite(q.w)&&
             q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w>1e-8f;
+        public static void SanitizeDisplay(HandPoseFrame display)
+        {
+            Sanitize(display.LeftJoints);Sanitize(display.RightJoints);
+        }
+        static void Sanitize(HandJointPose[] joints)
+        {
+            for(var i=0;i<joints.Length;i++)
+            {
+                var j=joints[i];
+                if(!DisplayFingerSolver.Finite(j.Pose.position) || !Finite(j.Pose.rotation))
+                {j.PoseValid=false;j.Pose=Pose.identity;joints[i]=j;}
+            }
+        }
 
         public void Solve(HandPoseFrame input, HandPoseFrame display, bool left, Vector3[] targets,
             float[] weights, RuleHandPoseSettings settings, float commonLimit)
@@ -37,6 +62,7 @@ namespace QuestPianoMotion.Research
             for(var f=0;f<5;f++)Metrics[f]=default;
             if(!settings.IsValid || !float.IsFinite(commonLimit) || commonLimit<0) {Reason="invalid_settings";return;}
             var source=left?input.LeftJoints:input.RightJoints;var dest=left?display.LeftJoints:display.RightJoints;
+            SanitizeDisplay(display);
             for(var f=0;f<5;f++)
             {
                 valid[f]=left?input.LeftTracked:input.RightTracked;Metrics[f]=default;
@@ -60,6 +86,8 @@ namespace QuestPianoMotion.Research
                     rawAxes[f,j]=Vector3.Cross(parent,raw[f,j+1]-raw[f,j]);
                 }
                 if(!DisplayFingerSolver.Finite(targets[f]) || !float.IsFinite(weights[f]))valid[f]=false;
+                if(valid[f] && FrozenFactors[f]>=0)
+                    for(var j=0;j<3;j++)p[f,j+1]=p[f,j]+Quaternion.Slerp(Quaternion.identity,FrozenRotations[f,j],FrozenFactors[f])*(raw[f,j+1]-raw[f,j]);
             }
             for(var iteration=0;iteration<settings.iterations;iteration++)
             {
@@ -67,7 +95,7 @@ namespace QuestPianoMotion.Research
                 PrepareEnvironment(settings);
                 for(var f=0;f<5;f++)
                 {
-                    if(!valid[f])continue;
+                    if(!valid[f] || FrozenFactors[f]>=0)continue;
                     var target=Vector3.Lerp(raw[f,3],targets[f],Mathf.Clamp01(weights[f]));
                     target+=EnvironmentPush(f,settings);
                     if((target-raw[f,3]).sqrMagnitude<1e-14f)continue;
@@ -81,6 +109,14 @@ namespace QuestPianoMotion.Research
                     }
                 }
             }
+            for(var f=0;f<5;f++)if(valid[f] && FrozenFactors[f]<0 && float.IsFinite(TemporalRadians[f]))
+                for(var j=0;j<3;j++)
+                {
+                    var previous=PreviousRotations[f,j]*(raw[f,j+1]-raw[f,j]);
+                    var direction=Vector3.RotateTowards(previous.normalized,(p[f,j+1]-p[f,j]).normalized,TemporalRadians[f],0);
+                    var shift=p[f,j]+direction*length[f,j]-p[f,j+1];
+                    for(var k=j+1;k<4;k++)p[f,k]+=shift;
+                }
             // Angular reconstruction preserves lengths, unlike blending Cartesian joint positions.
             for(var f=0;f<5;f++)for(var j=0;j<4;j++)candidate[f,j]=p[f,j];
             var scale=1f;
@@ -96,7 +132,7 @@ namespace QuestPianoMotion.Research
                         var direction=Vector3.Slerp((raw[f,j+1]-raw[f,j]).normalized,(candidate[f,j+1]-candidate[f,j]).normalized,scale);
                         p[f,j+1]=p[f,j]+direction.normalized*length[f,j];
                         var d=Vector3.Distance(p[f,j+1],raw[f,j+1]);
-                        safe &= DisplayFingerSolver.Finite(p[f,j+1]) && d<=Mathf.Min(commonLimit,settings.fingers[f].maxDisplacementMeters)+1e-7f;
+                        safe &= DisplayFingerSolver.Finite(p[f,j+1]) && d<=Mathf.Min(Mathf.Min(commonLimit,settings.fingers[f].maxDisplacementMeters),JointDisplacementLimits[f,j+1])+1e-7f;
                         if(settings.UseJoints)
                             safe &= Vector3.Angle(raw[f,j+1]-raw[f,j],p[f,j+1]-p[f,j])<=settings.fingers[f].maximumChangeFromRawDegrees+.001f;
                         squared+=d*d;count++;
@@ -109,6 +145,9 @@ namespace QuestPianoMotion.Research
             for(var f=0;f<5;f++)
             {
                 if(!valid[f]){Metrics[f]=new RuleFingerMetrics{valid=false};continue;}
+                var unchanged=true;
+                for(var j=0;j<4;j++)if((p[f,j]-raw[f,j]).sqrMagnitude>1e-14f)unchanged=false;
+                if(unchanged)for(var j=0;j<4;j++){p[f,j]=raw[f,j];dest[index[f,j]]=source[index[f,j]];}
                 var metric=new RuleFingerMetrics{valid=true,rawTip=raw[f,3],correctedTip=p[f,3],limited=scale<1,
                     targetResidual=Vector3.Distance(targets[f],p[f,3])};
                 for(var j=0;j<3;j++)
@@ -117,14 +156,20 @@ namespace QuestPianoMotion.Research
                     var parent=j==0?guide[f]:p[f,j]-p[f,j-1];
                     var violation=Vector3.Angle(parent,p[f,j+1]-p[f,j])-settings.fingers[f].maximumBendDegrees[j];
                     metric.angularViolationDegrees=Mathf.Max(metric.angularViolationDegrees,violation);
-                    var joint=dest[index[f,j]];
-                    joint.Pose.position=p[f,j];
-                    joint.Pose.rotation=Quaternion.FromToRotation(raw[f,j+1]-raw[f,j],p[f,j+1]-p[f,j])*source[index[f,j]].Pose.rotation;
-                    dest[index[f,j]]=joint;
+                    if(!unchanged)
+                    {
+                        var joint=dest[index[f,j]];
+                        joint.Pose.position=p[f,j];
+                        joint.Pose.rotation=Quaternion.FromToRotation(raw[f,j+1]-raw[f,j],p[f,j+1]-p[f,j])*source[index[f,j]].Pose.rotation;
+                        dest[index[f,j]]=joint;
+                    }
                 }
-                var tip=dest[index[f,3]];tip.Pose.position=p[f,3];
-                tip.Pose.rotation=Quaternion.FromToRotation(raw[f,3]-raw[f,2],p[f,3]-p[f,2])*source[index[f,3]].Pose.rotation;
-                dest[index[f,3]]=tip;
+                if(!unchanged)
+                {
+                    var tip=dest[index[f,3]];tip.Pose.position=p[f,3];
+                    tip.Pose.rotation=Quaternion.FromToRotation(raw[f,3]-raw[f,2],p[f,3]-p[f,2])*source[index[f,3]].Pose.rotation;
+                    dest[index[f,3]]=tip;
+                }
                 MaximumBoneError=Mathf.Max(MaximumBoneError,metric.boneError);Metrics[f]=metric;
             }
             FinishEnvironment(settings);
