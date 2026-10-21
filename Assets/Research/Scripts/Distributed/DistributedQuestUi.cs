@@ -126,7 +126,7 @@ namespace QuestPianoMotion.Research.Distributed
                 $"MIDI Receive Rate: {m_Client.MidiReceiveRate:F1}/s\n" +
                 $"Last MIDI Event: {m_Client.LastMidiEvent}\n" +
                 $"Session State: {m_Client.SessionState} | RAW: {(m_Client.ResearchRecording ? "REC" : "IDLE")} {m_Client.ResearchLogError}\n" +
-                $"Correction detail: {m_Client.Correction?.Latest.Reason}";
+                $"Correction detail: {(m_Client.RuleSettings.method==HandCorrectionMethod.Legacy?m_Client.Correction?.Latest.Reason:m_Client.PoseCorrection?.New.Reason)}";
         }
 
         IEnumerator PlaceWhenHeadPoseIsReady()
@@ -307,6 +307,18 @@ namespace QuestPianoMotion.Research.Distributed
         {
             if(m_CorrectionStatus==null||m_Client==null)return;
             var c=m_Client.CorrectionSettings;var latest=m_Client.Correction!=null?m_Client.Correction.Latest:default;
+            var rules=m_Client.RuleSettings;
+            if(rules.method!=HandCorrectionMethod.Legacy)
+            {
+                var fingerIndex=Mathf.Clamp((int)c.finger,0,4);
+                var p=m_Client.PoseCorrection?.New;var contact=p!=null?p.Contacts[fingerIndex]:default;
+                var delta=p!=null&&p.SolvedThisFrame?p.Solver.Metrics[fingerIndex].correctedTip-p.Solver.Metrics[fingerIndex].rawTip:Vector3.zero;
+                m_CorrectionStatus.text=$"{rules.method}: {(c.enabled&&rules.method!=HandCorrectionMethod.Raw?"ON":"OFF")} / {(c.leftHand?"LEFT":"RIGHT")} {c.finger}\n"+
+                    $"Strength {c.strength:F2} / max {c.maxCorrectionMeters*1000:F0} / RMS {rules.wholeHandRmsLimitMeters*1000:F0} mm\n"+
+                    $"R1 {rules.contact} / ROM {rules.UseJoints} / R2 {rules.UseEnvironment&&rules.nonpenetration}\n"+
+                    $"{contact.state} / note {contact.note} / {delta.magnitude*1000:F1} mm\n{p?.Reason}";
+                return;
+            }
             m_CorrectionStatus.text=$"MIDI TIP: {(c.enabled?"ON":"OFF")} / {(c.leftHand?"LEFT":"RIGHT")} {c.finger}\n"+
                 $"Strength {c.strength:F2} / max {c.maxCorrectionMeters*1000:F0} mm\n"+
                 $"Pad Y {c.tipToContactKeyboardMeters.y*1000:F0} mm / band -{c.belowSurfaceToleranceMeters*1000:F0},+{c.aboveSurfaceToleranceMeters*1000:F0} mm\n"+

@@ -119,7 +119,7 @@ namespace QuestPianoMotion.Research
                 }
             // Angular reconstruction preserves lengths, unlike blending Cartesian joint positions.
             for(var f=0;f<5;f++)for(var j=0;j<4;j++)candidate[f,j]=p[f,j];
-            var scale=1f;
+            var scale=1f;var accepted=false;
             for(var attempt=0;attempt<18;attempt++)
             {
                 var squared=0f;var count=0;var safe=true;
@@ -139,8 +139,13 @@ namespace QuestPianoMotion.Research
                     }
                 }
                 safe &= count==0 || Mathf.Sqrt(squared/count)<=settings.wholeHandRmsLimitMeters+1e-7f;
-                if(safe)break;
+                if(safe){accepted=true;break;}
                 scale=attempt==16?0:scale*.5f;Reason="displacement_limited";
+            }
+            if(!accepted)
+            {
+                for(var f=0;f<5;f++)for(var j=0;j<4;j++)p[f,j]=raw[f,j];
+                Reason="numerical_fallback";
             }
             for(var f=0;f<5;f++)
             {

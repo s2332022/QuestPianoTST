@@ -47,6 +47,14 @@ namespace QuestPianoMotion.Research.Tests
             RuleHandPoseSolver.Closest(Vector3.zero,Vector3.right,Vector3.up,Vector3.one,out a,out b);
             Assert.That(Vector3.Distance(a,b),Is.EqualTo(1).Within(1e-6));
         }
+        [Test] public void ZeroStrengthDoesNotMoveNonStrikingFingersEvenBelowKeyboard()
+        {
+            var raw=RuleHandPoseSolverTests.Frame();RuleHandPoseSolverTests.Set(raw,XRHandJointID.IndexTip,new Vector3(.022f,-.003f,.02f));
+            var display=new HandPoseFrame(raw.RightJoints.Length);new IdentityHandPoseProcessor().Process(raw,display);
+            var t=new Vector3[5];var w=new float[5];for(var f=0;f<5;f++)t[f]=raw.FindJoint(false,DisplayFingerSolver.Tip((CorrectionFinger)f)).Pose.position;
+            var solver=new RuleHandPoseSolver{Geometry=geometry,ConstraintStrength=0};solver.Solve(raw,display,false,t,w,new RuleHandPoseSettings{method=HandCorrectionMethod.FullRules},.02f);
+            for(var i=0;i<raw.RightJoints.Length;i++)Assert.That(display.RightJoints[i].Pose,Is.EqualTo(raw.RightJoints[i].Pose));
+        }
         [Test] public void CoupledFingerRepulsionReducesInterferenceWithinHardLimits()
         {
             var raw=RuleHandPoseSolverTests.Frame();

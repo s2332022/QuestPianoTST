@@ -5,12 +5,13 @@ namespace QuestPianoMotion.Research
     public sealed partial class RuleHandPoseSolver
     {
         public RuleKeyboardGeometry Geometry { get; set; }
+        public float ConstraintStrength { get; set; }=1;
         readonly Vector3[] environmentTarget=new Vector3[5], push=new Vector3[5];
         readonly float[] contactWeight=new float[5];
         void PrepareEnvironment(RuleHandPoseSettings settings)
         {
             for(var f=0;f<5;f++)push[f]=Vector3.zero;
-            if(!settings.UseEnvironment)return;
+            if(!settings.UseEnvironment || ConstraintStrength<=0)return;
             if(settings.nonpenetration && Geometry!=null && Geometry.Ready)
                 for(var f=0;f<5;f++)if(valid[f] && FrozenFactors[f]<0)
                 {
@@ -29,7 +30,7 @@ namespace QuestPianoMotion.Research
                         var share=FrozenFactors[f]>=0?0:FrozenFactors[g]>=0?1:contactWeight[f]>contactWeight[g]?.2f:contactWeight[g]>contactWeight[f]?.8f:.5f;
                         push[f]+=direction*overlap*share*.35f;push[g]-=direction*overlap*(1-share)*.35f;
                     }
-            for(var f=0;f<5;f++)environmentTarget[f]=Vector3.ClampMagnitude(environmentTarget[f]+push[f],settings.fingers[f].maxDisplacementMeters);
+            for(var f=0;f<5;f++)environmentTarget[f]=Vector3.ClampMagnitude(environmentTarget[f]+push[f]*Mathf.Clamp01(ConstraintStrength),settings.fingers[f].maxDisplacementMeters);
         }
         Vector3 EnvironmentPush(int f,RuleHandPoseSettings settings)=>settings.UseEnvironment?environmentTarget[f]:Vector3.zero;
         float Penetration(int f,Vector3[,] points,RuleHandPoseSettings settings)

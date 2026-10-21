@@ -10,7 +10,7 @@ using UnityEngine.XR.Hands;
 namespace QuestPianoMotion.Research.Distributed
 {
     /// <summary>Additional Quest-side research files. Never modifies provider frames or legacy CSVs.</summary>
-    public sealed class QuestRawSessionLog : IDisposable
+    public sealed partial class QuestRawSessionLog : IDisposable
     {
         [Serializable] public sealed class TransformSnapshot
         {
@@ -96,12 +96,15 @@ namespace QuestPianoMotion.Research.Distributed
                     ",\n  \"git_branch\": "+Quote(DistributedBuildInfo.Metadata.git_branch)+
                     ",\n  \"transform_snapshot_file\": \"transform_snapshots.jsonl\",\n  \"transform_snapshot_policy\": \"initial and exact matrix/mode changes at each logged Dynamic callback and MIDI observation; every hand/MIDI row references snapshot_id\",\n  \"finger_pad_model\": {\"pad_offset\": [0,0,0], \"contact_point_assumption\": false}";
                 File.WriteAllText(path,json.Substring(0,end).TrimEnd()+extra+"\n}\n");
-                queue?.Dispose();queue=new BlockingCollection<Entry>(4096);
+                queue?.Dispose();queue=new BlockingCollection<Entry>(4096);ResetRuleSession();
                 // Create files before accepting events; fail Begin if storage is unavailable.
                 var files=new[]{OpenTracked(opened,"quest_hand_raw.csv","session_id,quest_timestamp_sec,unity_frame,callback_index,update_type,hand,hand_tracked,joint_id,joint_name,pose_valid,tracking_state,position_x,position_y,position_z,rotation_x,rotation_y,rotation_z,rotation_w,snapshot_id,success_flags"),
                     OpenTracked(opened,"quest_midi_research.csv","session_id,source,quest_receive_timestamp_sec,sender_timestamp_sec,ble_timestamp_13bit_ms,connection_generation,event_index,event_type,channel,note,velocity,control,value,synthetic,snapshot_id,quest_observed_timestamp_sec"),
                     OpenTracked(opened,"transform_snapshots.jsonl",null),
-                    OpenTracked(opened,"quest_tip_correction.csv", "session_id,quest_timestamp_sec,unity_frame,callback_index,update_type,source,event_index,event_type,note,channel,connection_generation,quest_receive_timestamp_sec,quest_observed_timestamp_sec,hand,finger,selection_mode,coordinate_space,position_unit,raw_x,raw_y,raw_z,corrected_x,corrected_y,corrected_z,key_id,planar_distance_before_m,planar_distance_after_m,normal_residual_before_m,normal_residual_after_m,delta_x,delta_y,delta_z,delta_m,state,gain,configured_strength,effective_strength,max_correction_m,cap_applied,reach_limited,hand_tracked,coordinates_valid,geometry_valid,snapshot_id,calibration_id,reason,enabled,planar_tolerance_m,below_tolerance_m,above_tolerance_m,contact_offset_x,contact_offset_y,contact_offset_z,engage_s,release_s,max_hold_s")};
+                    OpenTracked(opened,"quest_tip_correction.csv", "session_id,quest_timestamp_sec,unity_frame,callback_index,update_type,source,event_index,event_type,note,channel,connection_generation,quest_receive_timestamp_sec,quest_observed_timestamp_sec,hand,finger,selection_mode,coordinate_space,position_unit,raw_x,raw_y,raw_z,corrected_x,corrected_y,corrected_z,key_id,planar_distance_before_m,planar_distance_after_m,normal_residual_before_m,normal_residual_after_m,delta_x,delta_y,delta_z,delta_m,state,gain,configured_strength,effective_strength,max_correction_m,cap_applied,reach_limited,hand_tracked,coordinates_valid,geometry_valid,snapshot_id,calibration_id,reason,enabled,planar_tolerance_m,below_tolerance_m,above_tolerance_m,contact_offset_x,contact_offset_y,contact_offset_z,engage_s,release_s,max_hold_s"),
+                    OpenTracked(opened,"quest_rule_pose.csv",RulePoseHeader),
+                    OpenTracked(opened,"rule_pose_settings.jsonl",null),
+                    OpenTracked(opened,"quest_rule_pose_joints.csv",RuleJointHeader)};
                 File.WriteAllText(Path.Combine(DirectoryPath,"tip_correction_metadata.json"),
                     "{\"version\":1,\"coordinate_space\":\"KeyboardRootLocal\",\"unit\":\"metres\",\"clock\":\"same Quest Stopwatch as raw callback; MIDI receive and Unity observation are distinct\",\"geometry\":\"rest cube tops; white top excludes black rest footprints; virtual 8mm animation is not measured physical displacement\",\"metric\":\"model display consistency, not absolute hand position error; signed normal residual includes configured Tip-to-contact offset\",\"pairing\":\"same raw callback time/index; invalid coordinates are blank; join transform_snapshots.jsonl by snapshot_id; join quest_midi_research.csv by source/event_index/generation\"}");
                 writer=new Thread(()=>WriteLoop(files)){IsBackground=true,Name="Quest raw research writer"};writer.Start();

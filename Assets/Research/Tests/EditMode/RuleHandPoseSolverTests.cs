@@ -83,5 +83,12 @@ namespace QuestPianoMotion.Research.Tests
             var solver=new RuleHandPoseSolver();solver.Solve(r,d,false,t,w,s,.03f);
             foreach(var m in solver.Metrics)Assert.That(m.angularViolationDegrees,Is.LessThan(.01f));
         }
+        [Test] public void ExtremeFiniteTargetCannotIntroduceNonfiniteDisplay()
+        {
+            var raw=Frame();var d=new HandPoseFrame(raw.RightJoints.Length);new IdentityHandPoseProcessor().Process(raw,d);
+            var targets=new Vector3[5];var weights=new float[5];for(var f=0;f<5;f++){targets[f]=Vector3.one*1e30f;weights[f]=1;}
+            new RuleHandPoseSolver().Solve(raw,d,false,targets,weights,new RuleHandPoseSettings{method=HandCorrectionMethod.FullRules},.02f);
+            foreach(var j in d.RightJoints){Assert.That(DisplayFingerSolver.Finite(j.Pose.position),Is.True);Assert.That(RuleHandPoseSolver.Finite(j.Pose.rotation),Is.True);}
+        }
     }
 }

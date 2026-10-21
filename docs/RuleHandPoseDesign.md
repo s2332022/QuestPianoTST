@@ -23,6 +23,8 @@ TrackingOriginLocalメートルで計算。親指はThumbMetacarpal–Proximal�
 4. 鍵盤の非貫通、割当済み打鍵指の接触。
 5. 指同士の干渉低減、Raw姿勢への近さ、時間方向の連続性。
 
+1・2は出力の安全条件として検査する。3–5は投影順・接触指の重み付けによる優先であり、厳密な辞書式最適化や全制約同時充足を保証するものではない。
+
 Rawが既に範囲外、固定基部が鍵盤内部、MAX=0等で矛盾する場合は残差を許す。
 「必ず全制約を満たす」とはしない。安全上限への角度縮小では骨長を保持し、必要ならRawへ戻る。
 迭代数は1–16（既定8）で固定上限。フレームを保持せず固定長配列のみを使用する。
@@ -76,3 +78,70 @@ Release中の指は環境ルールで押し直さない。他の指は引き続�
 設定不正・対象指の追跡無効・Origin非剛体・較正未完了では表示を安全なRawへ戻す。
 非有限入力はRawを変更せず、表示側だけPoseValid=false、Pose.identityとする。ゼロ補正では元のPoseをそのまま返し、再構築の丸めを発生させない。
 既定の80ms engage/120ms release、25ms低域通過、0.25m/sのオフセット速度上限は調整可能な工学的初期値であり、Quest 2の知覚遅延を実測して最適化した値ではない。
+
+## Phase 4: 明示割当と実行経路
+
+補正対象は選択した片手の5本。両手10本の同時割当・自動打鍵指推定は含まない。
+ノート0–127をThumb/Index/Middle/Ring/Littleへ手動割当できる。表示鍵がないノートは `key_unavailable`。
+Manual Note Map OFFでは選択した1指・単音のみ。ONでは最大5音の明確な割当を受け付ける。
+同じ指への同時複数ノート、未割当ノート、重複Note On、途中の割当変更は推測せずRawへ戻し、全Note Offと新しいOnを待つ。
+BLE/UDP・channel・generationで所有を識別し、古いBLE世代は無視する。UDP snapshotから新規の打鍵指を捏造しない。
+CC120/123・disconnectは解除し、CC64の音響的持続を指の接触保持と混同しない。
+
+`HandCorrectionRouter`だけが表示経路を選択する。OLDとNEWを直列に重ねない。
+OLDが既定で、既存のpublic Correction APIも保持。PC Display Pose選択時は既存のPC表示経路を優先し、NEWの結果として扱わない。
+
+## Quest UIの使い方
+
+1. 従来どおり鍵盤較正し、CORRECTIONタブで左右・選択指・Strength・共通MAX・共通PAD/Y BANDを設定。
+2. `NEW RULE SETTINGS` → `METHOD`で条件を巡回する。
+   - OLD（Legacy、初期値）
+   - ContactOnly：NEW接触のみ（骨長・基部・変位安全制約は常に有効）
+   - JointConstraints：NEW接触＋関節包絡
+   - FullRules：上記＋非貫通・指間干渉
+   - Raw：補正OFF
+3. R1/ROM/R2/INTERFERENCEを個別変更できる。method名だけで条件を推定せず、設定ログの実フラグも評価に使う。
+4. `NOTE MAP / LIMITS`でMap ON、ノート番号を選び、現在の選択指へASSIGN。別指の選択はCORRECTION画面または`MORE JOINTS / PAD`のNEXT FINGER。
+5. 同時に保持するノートが同じ指へ割当されないようにする。単音の場合はMap OFFでも5指を選択可能。
+6. 各指のMAX・Raw角度包絡・曲がり角上限・指腹オフセットXYZ、手全体RMS上限、反復数、開始/解除/平滑化時間を調整可能。
+
+共通MAXと各指MAXの**小さい方**が全関節に適用される。RMS上限は選択手の有効な15可動関節（5指×3、固定基部を除く）の変位ノルム二乗平均平方根。
+StrengthはR1要求と環境投影の更新量へ掛ける。0なら新たな環境補正を発生させず、既存の角度補正は速度制限下でRawへ近づく。複数制約と上限があるため、Strengthに対する実変位の線形比例は保証しない。
+無効指がある場合は有効関節だけを分母とする。掌・手首は変位0で固定。
+既存のMIDIロック、選択解除待ち、確認ダイアログ、パネル移動ハンドルは共通のまま。
+Raw記録中の方式変更自体は記録を停止しない。設定revisionが変わるため解析時は異なる条件を分離する。
+
+## 追加ログ（既存ファイル・列は変更しない）
+
+- `quest_rule_pose.csv`：Dynamic callbackごとに選択手5指の行。requested/executed method、enabled、Raw/Corrected tipと変位、割当ノート・source/channel/generation・On/Off参照、接触水平/符号付き法線/許容帯逸脱、非貫通・干渉の前後、骨長誤差、角度包絡違反、反復回数、目標残差、NEW処理時間、設定revision。
+- `quest_rule_pose_joints.csv`：同じcallbackの選択手全26関節。Raw/Corrected位置はKeyboardRootLocal、Corrected回転はTrackingOriginLocalと列に明示。Raw回転は従来Rawログへjoin。
+- `rule_pose_settings.jsonl`：設定が変わったcallbackだけを記録。比較は全設定のビット列を比較しておりハッシュ衝突には依存しない。common/rule設定はJSON文字列として保存し、異常設定もJSONL自体を壊さず表現する。
+
+`schema_version=1`。session_id、callback_index、snapshot_idでRaw/変換と結合する。
+OLDも専用新ログへ比較用指標を記録するが、既存 `quest_tip_correction.csv` の意味・列は変えない。
+NEW実行中の既存単一指CSVはヘッダーのみとなり、NEWをOLDとして記録しない。
+非打鍵指はnote=-1。onset_event_indexはNEWの割当Onを指し、event_indexは対応Offが来ればそのイベントへ更新。
+OLDのonset_event_index・onset時刻・NEW処理時間は取得できないため空欄または-1とし、存在しない値を補完しない。
+MIDI参照列はnote>=0かつsourceが非空の行に対して解釈する。未割当行のMIDI初期値0は実際の受信・観測時刻として使わない。
+反復数・処理時間は**手全体の1 callbackの値を5行へ反復**しており、指別値として合計しない。
+接触指標は有効な割当鍵がある場合のみ。座標が無効な場合は数値欄を空欄とする。solver_finger_validはソルバーで有効な鎖かを別に示す。
+幾何学的metricsは有効座標・形状に対して計算できるため、`coordinates_valid`は補正が実行されたという意味ではない。
+
+tip_target_residualは平滑化したR1目標（非打鍵指はRaw目標）への距離であり、複数軟制約すべてをまとめた最適化の収束証明ではない。
+angular_violation_degは符号なし曲がり角上限の残差であり、Rawからの変化角・臨床ROM全自由度を包括する値ではない。
+target_cappedはR1の要求ベクトルに対するMAX適用、solver_limitedは手全体の安全縮小を示す別のフラグ。解除では新たなR1目標を生成しないためtarget_capped=falseとする。
+キューへ渡すのは同期シリアライズ済み文字列のみ。HandPoseFrameや配列の参照を非同期保持しない。
+記録自体のCPU/GC・ストレージ負荷もQuest 2で別途評価する。
+
+## 再現可能な検証手順
+
+Unity 6000.5.10f1。既存パッケージのみ。新規外部パッケージなし。
+
+```powershell
+& '<Unity Editor>/Unity.exe' -batchmode -nographics -projectPath '<project>' -runTests -testPlatform EditMode -testFilter RuleHand -testResults '<out>/focused-edit.xml' -logFile '<out>/focused-edit.log'
+& '<Unity Editor>/Unity.exe' -batchmode -nographics -projectPath '<project>' -runTests -testPlatform PlayMode -testFilter RuleHand -testResults '<out>/focused-play.xml' -logFile '<out>/focused-play.log'
+# 最後にtestFilterを外して全EditMode / PlayModeを1回ずつ実行
+& '<Unity Editor>/Unity.exe' -batchmode -nographics -quit -projectPath '<project>' -executeMethod QuestPianoMotion.Research.Editor.PianoDistributedSceneBuilder.BuildAndroidValidation -logFile '<out>/android-build.log'
+```
+
+既存builderのQuestシーンのみ、Android/IL2CPP/ARM64を使用。生成APK・実験CSV・キャッシュをコミットしない。

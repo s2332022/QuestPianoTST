@@ -8,11 +8,12 @@ namespace QuestPianoMotion.Research
     public struct RuleFingerContact
     {
         public int note, channel;
-        public long generation, eventIndex;
+        public long generation, eventIndex, onsetEventIndex;
         public string source, reason;
         public double received, observed, onset, phaseStart;
         public TipCorrectionState state;
         public float gain, releaseGain;
+        public bool targetCapped;
     }
 
     /// <summary>Causal Dynamic-update processor. MIDI attribution and display pose are separate from Raw.</summary>
@@ -39,7 +40,7 @@ namespace QuestPianoMotion.Research
         public bool SolvedThisFrame { get; private set; }
         public string Reason { get; private set; }="no_note";
         public int HeldCount { get; private set; }
-        bool blocked,lastLeft,lastEnabled,hasTransform,hasPose;
+        bool blocked,lastLeft,lastEnabled,lastManualMap,hasTransform,hasPose;
         CorrectionFinger lastFinger;
         Matrix4x4 lastTransform;
         double lastPoseTime=double.NegativeInfinity;
@@ -51,7 +52,7 @@ namespace QuestPianoMotion.Research
         public void Reset(string reason)
         {
             Reason=reason;blocked=HeldCount>0;hasPose=false;hasTransform=false;lastPoseTime=double.NegativeInfinity;
-            lastLeft=common.leftHand;lastFinger=common.finger;lastEnabled=common.enabled;
+            lastLeft=common.leftHand;lastFinger=common.finger;lastEnabled=common.enabled;lastManualMap=settings.manualNoteMap;
             for(var f=0;f<5;f++)
             {
                 Contacts[f]=new RuleFingerContact{note=-1,reason=reason};tipOffsets[f]=Vector3.zero;previousReleaseFactor[f]=1;
@@ -77,13 +78,23 @@ namespace QuestPianoMotion.Research
             if(type!=MidiEventType.NoteOn && type!=MidiEventType.NoteOff)return;
             var note=message.NoteNumber;if(note<0 || note>127)return;
             var was=held[s,channel,note];var on=type==MidiEventType.NoteOn;
+            if(on && HeldCount==0 && (common.leftHand!=lastLeft || common.finger!=lastFinger || common.enabled!=lastEnabled || settings.manualNoteMap!=lastManualMap))
+                Reset("configuration_changed");
             if(on!=was){held[s,channel,note]=on;HeldCount+=on?1:-1;}
             if(on)
             {
-                if(was || HeldCount!=1 || blocked){Reset("ambiguous_notes");return;}
-                var f=(int)common.finger;
+                if(!settings.IsValid){Reset("invalid_settings");return;}
+                if(was || (!settings.manualNoteMap && HeldCount!=1) || blocked){Reset("ambiguous_notes");return;}
+                var f=settings.manualNoteMap?settings.noteToFinger[note]:(int)common.finger;
+                if(f<0){Reset("unmapped_note");return;}
                 if(f<0 || f>4){Reset("invalid_finger");return;}
-                Contacts[f]=new RuleFingerContact{note=note,channel=message.Channel,generation=generation,eventIndex=message.EventIndex,
+                if(settings.manualNoteMap)
+                    for(var otherSource=0;otherSource<2;otherSource++)for(var otherChannel=0;otherChannel<16;otherChannel++)for(var otherNote=0;otherNote<128;otherNote++)
+                        if(held[otherSource,otherChannel,otherNote] && (otherSource!=s || otherChannel!=channel || otherNote!=note) && settings.noteToFinger[otherNote]==f)
+                        {Reset("finger_assignment_conflict");return;}
+                if(Contacts[f].state==TipCorrectionState.Engaging || Contacts[f].state==TipCorrectionState.Active)
+                {Reset("finger_assignment_conflict");return;}
+                Contacts[f]=new RuleFingerContact{note=note,channel=message.Channel,generation=generation,eventIndex=message.EventIndex,onsetEventIndex=message.EventIndex,
                     source=source,received=received,observed=observed,onset=observed,phaseStart=observed,state=TipCorrectionState.Engaging,reason="note_on"};
             }
             else
@@ -96,7 +107,7 @@ namespace QuestPianoMotion.Research
         void Release(int f,double time,string reason)
         {
             var c=Contacts[f];if(c.state==TipCorrectionState.Inactive || c.state==TipCorrectionState.Releasing)return;
-            c.releaseGain=c.gain;c.phaseStart=time;c.state=TipCorrectionState.Releasing;c.reason=reason;Contacts[f]=c;
+            c.releaseGain=c.gain;c.phaseStart=time;c.state=TipCorrectionState.Releasing;c.reason=reason;c.targetCapped=false;Contacts[f]=c;
             previousReleaseFactor[f]=1;
             for(var j=0;j<3;j++)releaseRotations[f,j]=lastRotations[f,j];
         }
@@ -133,7 +144,7 @@ namespace QuestPianoMotion.Research
             identity.Process(raw,display);
             if(!common.enabled || settings.method==HandCorrectionMethod.Raw){Reset("disabled");return;}
             if(!common.IsValid || !settings.IsValid || common.selectionMode!=StrikingFingerMode.Manual){Reset("invalid_settings");return;}
-            if(common.leftHand!=lastLeft || common.finger!=lastFinger || common.enabled!=lastEnabled){Reset("selection_changed");return;}
+            if(common.leftHand!=lastLeft || common.finger!=lastFinger || common.enabled!=lastEnabled || settings.manualNoteMap!=lastManualMap){Reset("selection_changed");return;}
             if(blocked){Reason="await_all_notes_off";return;}
             if(calibrated==null || !calibrated()){Reset("calibration_invalid");return;}
             if(!(common.leftHand?raw.LeftTracked:raw.RightTracked)){Reset("tracking_invalid");return;}
@@ -158,6 +169,10 @@ namespace QuestPianoMotion.Research
                     solver.FrozenFactors[f]=1;for(var j=0;j<3;j++)solver.FrozenRotations[f,j]=lastRotations[f,j];continue;
                 }
                 var c=Contacts[f];
+                var contactSource=c.source=="BLE"?0:c.source=="UDP"?1:-1;
+                var contactHeld=contactSource>=0 && c.channel>=1 && c.channel<=16 && c.note>=0 && held[contactSource,c.channel-1,c.note];
+                if(settings.manualNoteMap && (c.state==TipCorrectionState.Engaging || c.state==TipCorrectionState.Active || contactHeld) && settings.noteToFinger[c.note]!=f)
+                {Reset("assignment_changed");return;}
                 if(c.state!=TipCorrectionState.Inactive && (!tip.PoseValid || !DisplayFingerSolver.Finite(tip.Pose.position))) {Reset("tracking_invalid");return;}
                 if(c.state!=TipCorrectionState.Inactive && (now<c.observed || now<c.received)){Reason="before_midi_observation";continue;}
                 if(c.state==TipCorrectionState.Engaging || c.state==TipCorrectionState.Active)
@@ -168,12 +183,14 @@ namespace QuestPianoMotion.Research
                         c.gain=Smooth(now-c.onset,common.engageSeconds);c.state=c.gain>=1?TipCorrectionState.Active:TipCorrectionState.Engaging;
                         var surface=Geometry.Surface(c.note);
                         if(surface==null){Reset("key_unavailable");return;}
+                        c.targetCapped=false;
                         if(settings.contact)
                         {
                             var rawKeyboard=Geometry.TrackingToKeyboard.MultiplyPoint3x4(tip.Pose.position);
                             var target=surface.Target(rawKeyboard,common.tipToContactKeyboardMeters+settings.fingers[f].contactOffsetKeyboardMeters,
                                 common.planarToleranceMeters,common.belowSurfaceToleranceMeters,common.aboveSurfaceToleranceMeters);
                             var delta=Geometry.KeyboardToTracking.MultiplyVector(target-rawKeyboard)*common.strength;
+                            c.targetCapped=delta.magnitude>Mathf.Min(common.maxCorrectionMeters,settings.fingers[f].maxDisplacementMeters);
                             delta=Vector3.ClampMagnitude(delta,Mathf.Min(common.maxCorrectionMeters,settings.fingers[f].maxDisplacementMeters))*c.gain;
                             var alpha=settings.smoothingSeconds<=0?1:1-Mathf.Exp(-dt/settings.smoothingSeconds);
                             var filtered=Vector3.Lerp(tipOffsets[f],delta,alpha);
@@ -203,6 +220,7 @@ namespace QuestPianoMotion.Research
                 solver.TemporalRadians[f]=total>1e-5f?settings.maximumOffsetSpeedMetersPerSecond*dt/total:0;
                 Contacts[f]=c;
             }
+            solver.ConstraintStrength=common.strength;
             solver.Solve(raw,display,common.leftHand,targets,weights,settings,common.maxCorrectionMeters);
             SolvedThisFrame=true;
             for(var f=0;f<5;f++)if(Contacts[f].state!=TipCorrectionState.Inactive && !solver.Metrics[f].valid)

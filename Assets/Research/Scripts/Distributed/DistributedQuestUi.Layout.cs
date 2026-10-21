@@ -84,6 +84,7 @@ namespace QuestPianoMotion.Research.Distributed
             var controls=new[] { "CORRECTION ON/OFF","LEFT / RIGHT","NEXT FINGER","HAND MESH","STRENGTH -0.25","STRENGTH +0.25","MAX -5 mm","MAX +5 mm","PAD Y -1 mm","PAD Y +1 mm","Y BAND -1 mm","Y BAND +1 mm" };
             for(var i=0;i<controls.Length;i++)Put(controls[i],2,20+(i%2)*350,-540-(i/2)*75,330,60);
             Put("Correction Instructions",2,20,-1010,680,145);
+            BuildRuleControls();
             Put("Status",3,20,-540,680,430);
             MakeScrollable(m_Status.rectTransform);
             m_DetailItems.Remove(m_Status.gameObject);
@@ -143,6 +144,7 @@ namespace QuestPianoMotion.Research.Distributed
         }
         void UpdateOverview()
         {
+            UpdateRuleDetails();
             if(m_Client==null||m_Overview==null)return;
             var ble=FindAnyObjectByType<BleMidiInput>();
             var midi=(ble!=null&&ble.IsConnected?"BLE CONNECTED":m_Client.PcConnected?"UDP CONNECTED":"DISCONNECTED");
@@ -150,7 +152,7 @@ namespace QuestPianoMotion.Research.Distributed
             var error=!string.IsNullOrEmpty(m_Client.ResearchLogError)?" / LOG ERROR":ble!=null&&!string.IsNullOrEmpty(ble.LogError)?" / BLE LOG ERROR":"";
             m_Overview.text=$"MIDI: {midi} / RAW: {(m_Client.ResearchRecording?"REC":"IDLE")}{error}\nXR Hands: {tracked}";
             if(!m_Compact)m_Overview.text+="\nCalibration: "+(m_Calibration!=null&&m_Calibration.Current!=null&&m_Calibration.Current.valid?"READY":"NOT CALIBRATED");
-            if(m_Compact){var c=m_Client.CorrectionSettings;m_Overview.text+=$"\nTIP: {(c.enabled?"ON":"OFF")} / {(c.leftHand?"LEFT":"RIGHT")} {c.finger}\nStrength {c.strength:F2} / Max {c.maxCorrectionMeters*1000:F0} mm";}
+            if(m_Compact){var c=m_Client.CorrectionSettings;var method=m_Client.RuleSettings.method;m_Overview.text+=$"\n{method}: {(c.enabled&&method!=HandCorrectionMethod.Raw?"ON":"OFF")} / {(c.leftHand?"LEFT":"RIGHT")} {c.finger}\nStrength {c.strength:F2} / Max {c.maxCorrectionMeters*1000:F0} mm";}
             if(m_PlacementStatus!=null)m_PlacementStatus.text=$"{FloatingPanel.PersistenceStatus}\nDistance limits: {FloatingPanel.MinimumDistance:F2} - {FloatingPanel.MaximumDistance:F2} m\nDrag changes position only. FACE USER keeps the panel upright.\nUncalibrated sessions restart safely in front.\nQuest system recenter also brings the panel back.";
         }
         // Standard ScrollRect and mask retain the complete diagnostic message at a readable font size.
