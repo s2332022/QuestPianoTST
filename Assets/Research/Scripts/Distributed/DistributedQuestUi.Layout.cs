@@ -52,9 +52,10 @@ namespace QuestPianoMotion.Research.Distributed
         {
             FloatingPanel = gameObject.AddComponent<QuestFloatingPanel>();
             FloatingPanel.Initialize(this);
-            m_Overview = CreateText("Performance Overview", transform, "MIDI: DISCONNECTED\nXR Hands: waiting", new Vector2(20,-20), new Vector2(680,100),26,TextAlignmentOptions.TopLeft,Color.white);
+            m_Overview = CreateText("Performance Overview", transform, "実験の準備状況を確認しています", new Vector2(20,-20), new Vector2(680,150),26,TextAlignmentOptions.TopLeft,Color.white);
             var correction = m_CorrectionStatus.rectTransform;
-            correction.anchoredPosition3D = new Vector3(20,-130,-2); correction.sizeDelta = new Vector2(680,145);
+            correction.anchoredPosition3D = new Vector3(20,-190,-2); correction.sizeDelta = new Vector2(680,90);
+            m_CorrectionStatus.fontSize = 18;
             var safety = Child("Performance UI State") as RectTransform;
             safety.anchoredPosition = new Vector2(20,-290); safety.sizeDelta = new Vector2(680,38);
             CreateButton("DETAIL SETTINGS",new Vector2(20,-340),210,()=>ShowDetails(!m_Details));
@@ -107,7 +108,7 @@ namespace QuestPianoMotion.Research.Distributed
             m_Handle.anchoredPosition3D=new Vector3(0,12,-4);m_Handle.sizeDelta=new Vector2(430,48);
             handle.GetComponent<Image>().color=new Color(.18f,.25f,.34f);handle.GetComponent<Image>().raycastTarget=true;
             handle.GetComponent<QuestPanelMoveHandle>().Panel=FloatingPanel;
-            var label=CreateText("Move handle label",handle.transform,"HOLD RAY + PINCH TO MOVE",Vector2.zero,m_Handle.sizeDelta,21,TextAlignmentOptions.Center,Color.white);
+            var label=CreateText("Move handle label",handle.transform,"Ray + Pinchでつかんで移動",Vector2.zero,m_Handle.sizeDelta,21,TextAlignmentOptions.Center,Color.white);
             Stretch(label.rectTransform,4,4,2,2,-2);
             ApplyLayout();
         }
@@ -116,7 +117,7 @@ namespace QuestPianoMotion.Research.Distributed
             if(m_Handle==null)return;
             var panelRect=(RectTransform)transform;
             var oldHeight=panelRect.sizeDelta.y;
-            var newHeight=m_Compact?375:m_Details?1320:535;
+            var newHeight=m_Compact?375:m_Details?1320:590;
             panelRect.sizeDelta=new Vector2(720,newHeight);
             // Keep the header fixed in world space when expanding details downwards.
             transform.position+=transform.up*((oldHeight-newHeight)*panelRect.lossyScale.y*.5f);
@@ -125,7 +126,7 @@ namespace QuestPianoMotion.Research.Distributed
             foreach(var tab in m_Tabs)tab.SetActive(m_Details);
             m_HandInputDiagnostic.gameObject.SetActive(m_Details && m_Page == 3 && m_LegacyRaycaster.enabled);
             var toggle=Child("TIP ON / OFF");if(toggle!=null)toggle.gameObject.SetActive(!m_Compact);
-            m_CorrectionStatus.gameObject.SetActive(!m_Compact);
+            m_CorrectionStatus.gameObject.SetActive(m_Details && m_Page == 2);
             // Header and recovery controls remain available in compact mode.
             if(m_Compact)
             {
@@ -139,7 +140,7 @@ namespace QuestPianoMotion.Research.Distributed
                 (Child("Performance UI State") as RectTransform).anchoredPosition=new Vector2(20,-290);
                 foreach(var name in new[]{"DETAIL SETTINGS","COMPACT / NORMAL","RECENTER UI"})
                     (Child(name) as RectTransform).anchoredPosition=new Vector2((Child(name) as RectTransform).anchoredPosition.x,-340);
-                m_Overview.rectTransform.sizeDelta=new Vector2(680,100);
+                m_Overview.rectTransform.sizeDelta=new Vector2(680,165);
             }
         }
         void UpdateOverview()
@@ -147,13 +148,15 @@ namespace QuestPianoMotion.Research.Distributed
             UpdateRuleDetails();
             if(m_Client==null||m_Overview==null)return;
             var ble=FindAnyObjectByType<BleMidiInput>();
-            var midi=(ble!=null&&ble.IsConnected?"BLE CONNECTED":m_Client.PcConnected?"UDP CONNECTED":"DISCONNECTED");
-            var tracked=m_Visualizer!=null?$"L:{m_Visualizer.LeftTracked} R:{m_Visualizer.RightTracked}":"unavailable";
-            var error=!string.IsNullOrEmpty(m_Client.ResearchLogError)?" / LOG ERROR":ble!=null&&!string.IsNullOrEmpty(ble.LogError)?" / BLE LOG ERROR":"";
-            m_Overview.text=$"MIDI: {midi} / RAW: {(m_Client.ResearchRecording?"REC":"IDLE")}{error}\nXR Hands: {tracked}";
-            if(!m_Compact)m_Overview.text+="\nCalibration: "+(m_Calibration!=null&&m_Calibration.Current!=null&&m_Calibration.Current.valid?"READY":"NOT CALIBRATED");
-            if(m_Compact){var c=m_Client.CorrectionSettings;var method=m_Client.RuleSettings.method;m_Overview.text+=$"\n{method}: {(c.enabled&&method!=HandCorrectionMethod.Raw?"ON":"OFF")} / {(c.leftHand?"LEFT":"RIGHT")} {c.finger}\nStrength {c.strength:F2} / Max {c.maxCorrectionMeters*1000:F0} mm";}
-            if(m_PlacementStatus!=null)m_PlacementStatus.text=$"{FloatingPanel.PersistenceStatus}\nDistance limits: {FloatingPanel.MinimumDistance:F2} - {FloatingPanel.MaximumDistance:F2} m\nDrag changes position only. FACE USER keeps the panel upright.\nUncalibrated sessions restart safely in front.\nQuest system recenter also brings the panel back.";
+            var midi=ble!=null&&ble.IsConnected?"BLE接続中":m_Client.PcConnected?"PC経由MIDI接続中":"未接続";
+            var error=!string.IsNullOrEmpty(m_Client.ResearchLogError)?" / 記録エラー":ble!=null&&!string.IsNullOrEmpty(ble.LogError)?" / BLEエラー":"";
+            var c=m_Client.CorrectionSettings;var method=m_Client.RuleSettings.method;
+            var methodName=method==HandCorrectionMethod.Legacy?"旧方式":method==HandCorrectionMethod.Raw?"補正なし":"新方式";
+            var fingers=new[]{"親指","人差し指","中指","薬指","小指"};
+            var finger=fingers[Mathf.Clamp((int)c.finger,0,4)];
+            m_Overview.text=$"MIDI：{midi}{error}\n鍵盤：{(m_Calibration!=null&&m_Calibration.Current!=null&&m_Calibration.Current.valid?"位置合わせ済み":"位置合わせが必要です")}　 記録：{(m_Client.ResearchRecording?"記録中":"停止中")}\n指先補正：{(c.enabled&&method!=HandCorrectionMethod.Raw?"ON":"OFF")}（{methodName}）　使用する手：{(c.leftHand?"左手":"右手")}　指：{finger}";
+            if(!m_Compact&&m_Details&&m_Page==2)m_Overview.text+=$"\n補正の強さ：{c.strength:F2}　最大補正距離：{c.maxCorrectionMeters*1000:F0} mm";
+            if(m_PlacementStatus!=null)m_PlacementStatus.text=$"{FloatingPanel.PersistenceStatus}\n距離範囲：{FloatingPanel.MinimumDistance:F2} ～ {FloatingPanel.MaximumDistance:F2} m\nハンドルをRay + Pinchでつかんで移動できます。\nQuestの再センター後はUIを正面に戻せます。";
         }
         // Standard ScrollRect and mask retain the complete diagnostic message at a readable font size.
         public static void MakeScrollable(RectTransform text)

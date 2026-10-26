@@ -123,8 +123,8 @@ namespace QuestPianoMotion.Research.Distributed
                     EventSystem.current.SetSelectedGameObject(null);
             }
             if (m_Status != null)
-                m_Status.text = locked ? "PLAYING / RELEASE PINCH - UI LOCKED" :
-                    (m_Pending != null ? "CONFIRM OR CANCEL (10 seconds)" : "UI READY - aim ray and pinch");
+                m_Status.text = locked ? "打鍵中は設定を変更できません。鍵盤を離し、Pinchを放してください。" :
+                    (m_Pending != null ? "確認またはキャンセルを選択してください（10秒で取消）" : "Rayを合わせてPinchで操作できます");
         }
 
         public void Run(string label, UnityAction action, bool confirm = false)
@@ -136,7 +136,7 @@ namespace QuestPianoMotion.Research.Distributed
             EnsureDialog();
             m_Pending = action;
             m_ExpiresAt = Time.realtimeSinceStartupAsDouble + ConfirmationSeconds;
-            m_ConfirmationText.text = label + "?\nChoose CONFIRM to continue.\nPlaying again cancels this request.";
+            m_ConfirmationText.text = label + "しますか？\n確認を選ぶと続行します。\n演奏を再開すると操作を取り消します。";
             m_Dialog.SetActive(true);
             m_Dialog.transform.SetAsLastSibling();
             EventSystem.current?.SetSelectedGameObject(null);
@@ -198,7 +198,7 @@ namespace QuestPianoMotion.Research.Distributed
             button.targetGraphic = go.GetComponent<Image>();
             button.onClick.AddListener(action);
             var text = Text(caption + " Label", go.transform, Vector2.zero, new Vector2(280, 64), 24);
-            text.text = caption;
+            text.text = caption == "CONFIRM" ? "確認" : "キャンセル";
             text.alignment = TextAlignmentOptions.Center;
         }
 

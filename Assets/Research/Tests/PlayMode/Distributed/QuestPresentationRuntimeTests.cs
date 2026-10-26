@@ -47,12 +47,13 @@ namespace QuestPianoMotion.Research.Tests
             Assert.That(uiObject.GetComponentsInChildren<RectMask2D>(true).Length, Is.EqualTo(2), "Diagnostics and calibration use masked scroll views.");
 
             var required = new[] { "RECENTER UI", "HAND GAMEOBJECTS", "HAND GPU" };
+            var captions = new[] { "UIを正面に移動", "手の表示（診断）", "手の表示（高速）" };
             var buttons = uiObject.GetComponentsInChildren<Button>(true);
             foreach (var label in required)
             {
                 var button = buttons.Single(x => x.name == label);
                 var text = button.GetComponentInChildren<TextMeshProUGUI>(true);
-                Assert.That(text.text, Is.EqualTo(label));
+                Assert.That(text.text, Is.EqualTo(captions[System.Array.IndexOf(required, label)]));
                 Assert.That(text.font, Is.SameAs(ui.FontAsset));
                 Assert.That(text.color.a, Is.EqualTo(1f));
                 Assert.That(text.rectTransform.rect.width, Is.GreaterThan(0f));

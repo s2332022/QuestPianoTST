@@ -119,6 +119,22 @@ namespace QuestPianoMotion.Research.Tests
             {
                 yield return null;client.StopNetwork();var ui=uiGo.GetComponent<DistributedQuestUi>();
                 Assert.That(client.RuleSettings.method,Is.EqualTo(HandCorrectionMethod.Legacy));
+                var common=client.CorrectionSettings;
+                var enabled=common.enabled;var left=common.leftHand;var finger=common.finger;
+                var toggle=uiGo.GetComponentsInChildren<Button>(true).Single(b=>b.name=="TIP ON / OFF");
+                var hand=uiGo.GetComponentsInChildren<Button>(true).Single(b=>b.name=="LEFT / RIGHT");
+                toggle.onClick.Invoke();
+                Assert.That(common.enabled,Is.EqualTo(!enabled));
+                toggle.onClick.Invoke();
+                Assert.That(common.enabled,Is.EqualTo(enabled));
+                hand.onClick.Invoke();
+                Assert.That(common.leftHand,Is.EqualTo(!left));
+                hand.onClick.Invoke();
+                for(var i=1;i<=5;i++)
+                {
+                    uiGo.transform.Find("NEXT FINGER").GetComponent<Button>().onClick.Invoke();
+                    Assert.That(common.finger,Is.EqualTo((CorrectionFinger)(((int)finger+i)%5)));
+                }
                 for(var page=5;page<=7;page++)
                 {
                     ui.ShowDetails(true,page);Canvas.ForceUpdateCanvases();yield return null;
@@ -127,9 +143,12 @@ namespace QuestPianoMotion.Research.Tests
                     foreach(var label in uiGo.GetComponentsInChildren<TMP_Text>()){label.ForceMeshUpdate();Assert.That(label.fontSize,Is.GreaterThanOrEqualTo(18));if(label.transform.parent.GetComponent<Button>()!=null)Assert.That(label.isTextTruncated,Is.False,label.text);}
                 }
                 ui.ShowDetails(true,5);var mode=uiGo.transform.Find("METHOD NEXT").GetComponent<Button>();mode.onClick.Invoke();
-                Assert.That(client.RuleSettings.method,Is.EqualTo(HandCorrectionMethod.ContactOnly));
+                Assert.That(client.RuleSettings.method,Is.EqualTo(HandCorrectionMethod.FullRules));
+                mode.onClick.Invoke();
+                Assert.That(client.RuleSettings.method,Is.EqualTo(HandCorrectionMethod.Legacy));
+                mode.onClick.Invoke();
                 typeof(PerformanceUiSafety).GetMethod("SetLocked",Private).Invoke(ui.Safety,new object[]{true});mode.onClick.Invoke();
-                Assert.That(client.RuleSettings.method,Is.EqualTo(HandCorrectionMethod.ContactOnly));
+                Assert.That(client.RuleSettings.method,Is.EqualTo(HandCorrectionMethod.FullRules));
             }
             finally{Object.DestroyImmediate(uiGo);Object.DestroyImmediate(runtime);}
         }

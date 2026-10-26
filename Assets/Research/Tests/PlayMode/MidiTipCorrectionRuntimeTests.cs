@@ -40,11 +40,27 @@ namespace QuestPianoMotion.Research.Tests
                 ui.ShowDetails(true,2);ui.SetCompact(true);ui.SetCompact(false);ui.ShowDetails(false);
                 ui.RecenterUi();ui.FloatingPanel.AdjustDistance(.1f);ui.FloatingPanel.FaceUser();
                 yield return new WaitForSecondsRealtime(.3f);
-                Assert.That(ui.transform.Find("Performance Overview").GetComponent<TMPro.TMP_Text>().text,Does.Contain("RAW: REC"));
+                Assert.That(ui.transform.Find("Performance Overview").GetComponent<TMPro.TMP_Text>().text,Does.Contain("記録：記録中"));
                 Assert.That(ui.transform.Find("MIDI Tip Correction Status").GetComponent<TMPro.TMP_Text>().text,Does.Contain("LEFT"));
                 Assert.That(client.CorrectionSettings,Is.SameAs(config));Assert.That(JsonUtility.ToJson(config),Is.EqualTo(before));
                 Assert.That(client.ResearchRecording,Is.True);Assert.That(client.ResearchSessionPath,Is.EqualTo(sessionPath));
                 Assert.That(client.NetworkRunning,Is.True);Assert.That(client.ResearchLogError,Is.Empty);
+                var overview=ui.transform.Find("Performance Overview").GetComponent<TMPro.TMP_Text>();
+                Assert.That(overview.text,Does.Contain("左手"));
+                Assert.That(overview.text,Does.Contain("中指"));
+                CaptureJapanesePreview(cameraGo.GetComponent<Camera>(),ui,"session-normal");
+                ui.SetCompact(true);
+                yield return new WaitForSecondsRealtime(.3f);
+                Assert.That(ui.transform.Find("MIDI Tip Correction Status").gameObject.activeSelf,Is.False);
+                CaptureJapanesePreview(cameraGo.GetComponent<Camera>(),ui,"session-compact");
+                ui.SetCompact(false);
+                uiGo.transform.Find("STOP RAW REC").GetComponent<UnityEngine.UI.Button>().onClick.Invoke();
+                Assert.That(ui.Safety.ConfirmationPending,Is.True);
+                Assert.That(client.ResearchRecording,Is.True,"Stopping requires a separate confirmation.");
+                var confirm=uiGo.transform.Find("UI operation confirmation/CONFIRM").GetComponent<UnityEngine.UI.Button>();
+                Assert.That(confirm.GetComponentInChildren<TMPro.TMP_Text>().text,Is.EqualTo("確認"));
+                confirm.onClick.Invoke();
+                Assert.That(client.ResearchRecording,Is.False);
             }
             finally
             {
@@ -59,6 +75,40 @@ namespace QuestPianoMotion.Research.Tests
                 }
             }
         }
+        static void CaptureJapanesePreview(Camera camera,DistributedQuestUi ui,string name)
+        {
+            Canvas.ForceUpdateCanvases();
+            var overview=ui.transform.Find("Performance Overview").GetComponent<TMPro.TMP_Text>();
+            overview.ForceMeshUpdate();
+            Assert.That(overview.isTextTruncated,Is.False,overview.text);
+            foreach(var character in overview.textInfo.characterInfo)
+                if(character.isVisible)Assert.That(character.textElement.unicode,Is.EqualTo((uint)character.character),"Missing glyph: "+character.character);
+            var folder=Environment.GetEnvironmentVariable("QUEST_UI_CAPTURE_DIR");
+            if(string.IsNullOrEmpty(folder)||SystemInfo.graphicsDeviceType==UnityEngine.Rendering.GraphicsDeviceType.Null)return;
+            camera.transform.SetPositionAndRotation(ui.transform.position-ui.transform.forward*2,ui.transform.rotation);
+            camera.orthographic=true;camera.aspect=1;
+            camera.orthographicSize=Mathf.Max(((RectTransform)ui.transform).rect.height,720)*.00065f*.55f;
+            camera.clearFlags=CameraClearFlags.SolidColor;camera.backgroundColor=new Color(.1f,.1f,.12f);
+            var rt=new RenderTexture(1600,1600,24);var texture=new Texture2D(1600,1600,TextureFormat.RGB24,false);
+            var previous=RenderTexture.active;
+            var elements=ui.GetComponentsInChildren<Transform>(true);
+            var layers=elements.Select(t=>t.gameObject.layer).ToArray();var mask=camera.cullingMask;
+            try
+            {
+                foreach(var element in elements)element.gameObject.layer=31;
+                camera.cullingMask=1<<31;
+                camera.targetTexture=rt;camera.Render();RenderTexture.active=rt;
+                texture.ReadPixels(new Rect(0,0,1600,1600),0,0);texture.Apply();
+                Directory.CreateDirectory(folder);File.WriteAllBytes(Path.Combine(folder,name+".png"),texture.EncodeToPNG());
+            }
+            finally
+            {
+                for(var i=0;i<elements.Length;i++)elements[i].gameObject.layer=layers[i];
+                camera.cullingMask=mask;camera.targetTexture=null;RenderTexture.active=previous;
+                UnityEngine.Object.Destroy(rt);UnityEngine.Object.Destroy(texture);
+            }
+        }
+
         [UnityTest]
         public IEnumerator BleObservationMovesOfficialSkinnedMeshAndPairedLogPreservesRaw()
         {

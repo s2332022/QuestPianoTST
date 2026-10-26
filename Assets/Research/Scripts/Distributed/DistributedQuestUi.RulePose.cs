@@ -19,7 +19,8 @@ namespace QuestPianoMotion.Research.Distributed
         }
         static void Preset(RuleHandPoseSettings s)
         {
-            s.method=(HandCorrectionMethod)(((int)s.method+1)%5);
+            // The primary selector keeps research presets simple and protects the Legacy default.
+            s.method=s.method==HandCorrectionMethod.Legacy?HandCorrectionMethod.FullRules:HandCorrectionMethod.Legacy;
             if(s.method==HandCorrectionMethod.Legacy || s.method==HandCorrectionMethod.Raw)return;
             s.contact=true;s.joints=s.method!=HandCorrectionMethod.ContactOnly;
             s.nonpenetration=s.interference=s.method==HandCorrectionMethod.FullRules;
@@ -87,10 +88,10 @@ namespace QuestPianoMotion.Research.Distributed
             if(m_Client==null)return;var c=m_Client.CorrectionSettings;var s=m_Client.RuleSettings;
             if(!s.IsValid)return;
             var f=SelectedRule(c,s);var mapped=s.noteToFinger[m_RuleMapNote];
-            if(m_RuleMethodButton!=null)m_RuleMethodButton.text="METHOD: "+(s.method==HandCorrectionMethod.Legacy?"OLD":s.method.ToString())+" >";
-            if(m_RuleDetails[0]!=null)m_RuleDetails[0].text=$"{s.method}: R1 {s.contact} / ROM {s.UseJoints}\nR2 {s.UseEnvironment&&s.nonpenetration} / Interference {s.UseEnvironment&&s.interference}\nEngage {c.engageSeconds*1000:F0} / Release {c.releaseSeconds*1000:F0} / Smooth {s.smoothingSeconds*1000:F0} ms\nDepth {s.permittedPenetrationMeters*1000:F0} / radius {s.segmentRadiusMeters*1000:F0} mm";
-            if(m_RuleDetails[1]!=null)m_RuleDetails[1].text=$"Map {(s.manualNoteMap?"ON":"OFF")} / note {m_RuleMapNote} -> {(mapped<0?"UNMAPPED":((CorrectionFinger)mapped).ToString())}\nSelected {(c.leftHand?"LEFT":"RIGHT")} {c.finger} / Raw cone {f.maximumChangeFromRawDegrees:F0} deg\nFinger max {f.maxDisplacementMeters*1000:F0} / hand RMS {s.wholeHandRmsLimitMeters*1000:F0} mm\nUnmapped/conflicting chords require all keys up.";
-            if(m_RuleDetails[2]!=null)m_RuleDetails[2].text=$"{c.finger} bend envelope {f.maximumBendDegrees.x:F0}/{f.maximumBendDegrees.y:F0}/{f.maximumBendDegrees.z:F0} deg\nFinger PAD XYZ {f.contactOffsetKeyboardMeters.x*1000:F0}/{f.contactOffsetKeyboardMeters.y*1000:F0}/{f.contactOffsetKeyboardMeters.z*1000:F0} mm\nOffset speed {s.maximumOffsetSpeedMetersPerSecond:F2} m/s / {s.iterations} iterations\nGeometric rules; physical accuracy not established.";
+            if(m_RuleMethodButton!=null)m_RuleMethodButton.text="補正方式："+(s.method==HandCorrectionMethod.Legacy?"旧方式":s.method==HandCorrectionMethod.Raw?"補正なし":"新方式")+"（切替）";
+            if(m_RuleDetails[0]!=null)m_RuleDetails[0].text=$"{(s.method==HandCorrectionMethod.Legacy?"旧方式":s.method==HandCorrectionMethod.Raw?"補正なし":"新方式")}：接触制約 {s.contact} / 関節制約 {s.UseJoints}\n非貫通制約 {s.UseEnvironment&&s.nonpenetration} / 指同士の干渉 {s.UseEnvironment&&s.interference}\n補正開始 {c.engageSeconds*1000:F0} ms / 補正解除 {c.releaseSeconds*1000:F0} ms / 平滑化 {s.smoothingSeconds*1000:F0} ms\n許容深度 {s.permittedPenetrationMeters*1000:F0} / 半径 {s.segmentRadiusMeters*1000:F0} mm";
+            if(m_RuleDetails[1]!=null)m_RuleDetails[1].text=$"手動割当 {(s.manualNoteMap?"ON":"OFF")} / MIDIノート {m_RuleMapNote} → {(mapped<0?"未割当":((CorrectionFinger)mapped).ToString())}\n対象 {(c.leftHand?"左手":"右手")} {c.finger} / Raw姿勢からの最大角度 {f.maximumChangeFromRawDegrees:F0}度\n指の最大移動 {f.maxDisplacementMeters*1000:F0} mm / 全指RMS上限 {s.wholeHandRmsLimitMeters*1000:F0} mm\n未割当または競合する和音では、すべての鍵盤を離すと解除されます。";
+            if(m_RuleDetails[2]!=null)m_RuleDetails[2].text=$"{c.finger}の関節角度上限：{f.maximumBendDegrees.x:F0}/{f.maximumBendDegrees.y:F0}/{f.maximumBendDegrees.z:F0}度\n接触位置オフセット XYZ：{f.contactOffsetKeyboardMeters.x*1000:F0}/{f.contactOffsetKeyboardMeters.y*1000:F0}/{f.contactOffsetKeyboardMeters.z*1000:F0} mm\n補正速度上限 {s.maximumOffsetSpeedMetersPerSecond:F2} m/s / 反復 {s.iterations}回\n幾何制約による補正です。実機精度の検証は別途必要です。";
         }
     }
 }

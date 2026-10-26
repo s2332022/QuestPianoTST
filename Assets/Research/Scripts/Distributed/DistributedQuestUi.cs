@@ -98,7 +98,7 @@ namespace QuestPianoMotion.Research.Distributed
                 {
                     m_LastCalibrationMessage = message;
                     m_LastCaptureHand = hand;
-                    m_CalibrationStatus.text = $"Capture Hand: {hand.ToUpperInvariant()}\n{message}";
+                    m_CalibrationStatus.text = $"登録する手：{(string.Equals(hand,"Left",StringComparison.OrdinalIgnoreCase)?"左手":"右手")}\n{message}";
                     UpdatePassthroughFailureActions();
                 }
             }
@@ -111,22 +111,18 @@ namespace QuestPianoMotion.Research.Distributed
                 ? $"{m_Visualizer.Mode} events={m_Visualizer.DisplayEventCount} tracked=({m_Visualizer.LeftTracked},{m_Visualizer.RightTracked}) valid=({m_Visualizer.LeftValidJointCount},{m_Visualizer.RightValidJointCount})"
                 : "Unavailable";
             m_Status.text =
-                "QUEST DIAGNOSTICS\n" +
-                (m_Client.PcConnected ? "PC CONNECTED\n" : "PC DISCONNECTED\n") +
-                $"Connected at: {m_Client.ConnectedAt:F3}\n" +
-                $"Last received: {m_Client.LastReceivedTimestamp:F3} s (age {m_Client.LastReceivedAge:F2} s)\n" +
-                $"Received packets: {m_Client.ReceivedPacketCount}\n" +
-                $"Sequence missing: {m_Client.MissingPacketCount}\n" +
-                $"XR Loader: {m_Client.XrLoaderName}\n" +
-                $"XR Hands running: {m_Client.XrHandsRunning}\n" +
-                $"Hand Visual: {visual}\n" +
-                $"RTT: {m_Client.RttSeconds * 1000d:F2} ms\n" +
-                $"Clock Sync Status: {(m_Client.ClockSynchronized ? "Synchronized" : "Unavailable")}\n" +
-                $"Pose Send Rate: {m_Client.PoseSendRate:F1}/s\n" +
-                $"MIDI Receive Rate: {m_Client.MidiReceiveRate:F1}/s\n" +
-                $"Last MIDI Event: {m_Client.LastMidiEvent}\n" +
-                $"Session State: {m_Client.SessionState} | RAW: {(m_Client.ResearchRecording ? "REC" : "IDLE")} {m_Client.ResearchLogError}\n" +
-                $"Correction detail: {(m_Client.RuleSettings.method==HandCorrectionMethod.Legacy?m_Client.Correction?.Latest.Reason:m_Client.PoseCorrection?.New.Reason)}";
+                "接続・診断情報\n" +
+                (m_Client.PcConnected ? "PC接続中\n" : "PC未接続\n") +
+                $"接続時刻：{m_Client.ConnectedAt:F3}\n" +
+                $"最終受信：{m_Client.LastReceivedTimestamp:F3} 秒（経過 {m_Client.LastReceivedAge:F2} 秒）\n" +
+                $"受信パケット：{m_Client.ReceivedPacketCount}\n欠落シーケンス：{m_Client.MissingPacketCount}\n" +
+                $"XR Loader：{m_Client.XrLoaderName}\nXR Hands動作中：{m_Client.XrHandsRunning}\n手の表示：{visual}\n" +
+                $"RTT：{m_Client.RttSeconds * 1000d:F2} ms\n" +
+                $"クロック同期：{(m_Client.ClockSynchronized ? "同期済み" : "利用不可")}\n" +
+                $"姿勢送信率：{m_Client.PoseSendRate:F1}/秒\nMIDI受信率：{m_Client.MidiReceiveRate:F1}/秒\n" +
+                $"最終MIDIイベント：{m_Client.LastMidiEvent}\n" +
+                $"セッション：{m_Client.SessionState} | Raw：{(m_Client.ResearchRecording ? "記録中" : "停止中")} {m_Client.ResearchLogError}\n" +
+                $"補正詳細：{(m_Client.RuleSettings.method==HandCorrectionMethod.Legacy?m_Client.Correction?.Latest.Reason:m_Client.PoseCorrection?.New.Reason)}";
         }
 
         IEnumerator PlaceWhenHeadPoseIsReady()
@@ -222,7 +218,7 @@ namespace QuestPianoMotion.Research.Distributed
                 if (m_Settings == null || m_Client == null) return;
                 if (!IsValidIpv4(m_Settings.pcIpAddress))
                 {
-                    ShowIpError("Enter a valid IPv4 address.");
+                    ShowIpError("有効なIPv4アドレスを入力してください。");
                     OpenIpKeyboard();
                     return;
                 }
@@ -257,7 +253,7 @@ namespace QuestPianoMotion.Research.Distributed
                 new Vector2(20, -680), new Vector2(680, 190), 18,
                 TextAlignmentOptions.TopLeft, new Color(0.7f, 0.95f, 1f, 1f));
             m_CalibrationStatus = CreateText("Calibration Capture Status", transform,
-                "Capture Hand: RIGHT\nNot calibrated", new Vector2(20, -790), new Vector2(680, 90),
+                "登録する手：右手\n鍵盤の位置合わせが必要です", new Vector2(20, -790), new Vector2(680, 90),
                 23, TextAlignmentOptions.TopLeft, Color.white);
             CreateButton("START RAW REC",new Vector2(20,-900),210,()=>m_Client?.BeginLocalResearchSession());
             CreateButton("STOP RAW REC",new Vector2(260,-900),210,()=>m_Client?.EndLocalResearchSession(), true);
@@ -285,7 +281,7 @@ namespace QuestPianoMotion.Research.Distributed
             rect.anchoredPosition = new Vector2(740, -20); rect.sizeDelta = new Vector2(490, 720);
             panel.GetComponent<Image>().color = new Color(.03f, .06f, .1f, .96f);
             panel.GetComponent<Image>().raycastTarget = false;
-            m_CorrectionStatus = CreateText("MIDI Tip Correction Status", transform, "MIDI TIP CORRECTION",
+            m_CorrectionStatus = CreateText("MIDI Tip Correction Status", transform, "指先補正の状態",
                 new Vector2(760,-40),new Vector2(450,170),22,TextAlignmentOptions.TopLeft,Color.white);
             MidiTipCorrectionSettings Config() => m_Client != null ? m_Client.CorrectionSettings : null;
             CreateButton("CORRECTION ON/OFF",new Vector2(760,-220),220,()=>{var c=Config();if(c!=null)c.enabled=!c.enabled;});
@@ -300,7 +296,7 @@ namespace QuestPianoMotion.Research.Distributed
             CreateButton("PAD Y +1 mm",new Vector2(990,-460),210,()=>{var c=Config();if(c!=null)c.tipToContactKeyboardMeters.y=Mathf.Min(.03f,c.tipToContactKeyboardMeters.y+.001f);});
             CreateButton("Y BAND -1 mm",new Vector2(760,-520),220,()=>{var c=Config();if(c!=null){c.belowSurfaceToleranceMeters=Mathf.Max(0,c.belowSurfaceToleranceMeters-.001f);c.aboveSurfaceToleranceMeters=Mathf.Max(0,c.aboveSurfaceToleranceMeters-.001f);}});
             CreateButton("Y BAND +1 mm",new Vector2(990,-520),210,()=>{var c=Config();if(c!=null){c.belowSurfaceToleranceMeters+=.001f;c.aboveSurfaceToleranceMeters+=.001f;}});
-            CreateText("Correction Instructions",transform,"C4-C5 single notes / manual finger\nA: OFF   B: ON   C: strength comparison\nStart/Stop RAW REC to save paired CSV.\nRelease notes and pinch before changing settings.",
+            CreateText("Correction Instructions",transform,"旧方式：単一指補正　新方式：全指ルールベース補正\n手と指、補正方式を選び、補正をONにします。\n記録開始 → 演奏 → 記録停止でRawデータを保存します。\n設定変更前に鍵盤とPinchを離してください。",
                 new Vector2(760,-590),new Vector2(450,120),20,TextAlignmentOptions.TopLeft,Color.white);
         }
         void UpdateCorrectionStatus()
@@ -329,9 +325,9 @@ namespace QuestPianoMotion.Research.Distributed
         {
             var retryAvailable = m_Calibration != null && m_Calibration.PassthroughRetryAvailable;
             if (m_CaptureAButtonLabel != null)
-                m_CaptureAButtonLabel.text = retryAvailable ? "RETRY PASSTHROUGH" : "CALIBRATION A";
+                m_CaptureAButtonLabel.text = retryAvailable ? "透過表示を再試行" : "Aを登録";
             if (m_CancelCaptureButtonLabel != null)
-                m_CancelCaptureButtonLabel.text = retryAvailable ? "CANCEL CALIBRATION" : "CANCEL CAPTURE";
+                m_CancelCaptureButtonLabel.text = retryAvailable ? "位置合わせを中止" : "登録を中止";
         }
 
         public void ConfigureInputMode(UiInputMode mode)
@@ -471,7 +467,7 @@ namespace QuestPianoMotion.Research.Distributed
             var image = go.GetComponent<Image>();
             image.color = new Color(0.12f, 0.32f, 0.62f, 1f);
             image.raycastTarget = true;
-            var text = CreateText(label + " Label", go.transform, label, Vector2.zero, size,
+            var text = CreateText(label + " Label", go.transform, JapaneseLabel(label), Vector2.zero, size,
                 label.Length > 2 ? 13f : 20f, TextAlignmentOptions.Center, Color.white);
             Stretch(text.rectTransform, 3f, 3f, 2f, 2f, -2f);
             var button = go.GetComponent<Button>();
@@ -527,7 +523,7 @@ namespace QuestPianoMotion.Research.Distributed
             if (Safety != null && !Safety.CanUseControls) return false;
             if (!IsValidIpv4(m_EditingIp))
             {
-                ShowIpError("Invalid IPv4 address.");
+                ShowIpError("IPv4アドレスを確認してください。");
                 return false;
             }
             if (m_Settings != null)
@@ -632,7 +628,7 @@ namespace QuestPianoMotion.Research.Distributed
         {
             if (m_KeyboardModeLabel != null && m_Keyboard != null)
                 m_KeyboardModeLabel.text = m_Keyboard.DisplayMode == KeyboardDisplayMode.Full88Keys
-                    ? "KEYBOARD: 88 KEYS" : "KEYBOARD: 13 KEYS";
+                ? "鍵盤：88鍵" : "鍵盤：13鍵";
         }
 
         string LoadSavedIp()
@@ -646,7 +642,7 @@ namespace QuestPianoMotion.Research.Distributed
             }
             catch (Exception e)
             {
-                Debug.LogWarning("Saved PC IP could not be loaded; using the default. " + e.Message, this);
+                Debug.LogWarning("保存済みPC IPを読み込めないため既定値を使います。 " + e.Message, this);
                 return null;
             }
         }
@@ -660,7 +656,7 @@ namespace QuestPianoMotion.Research.Distributed
             }
             catch (Exception e)
             {
-                Debug.LogWarning("PC IP could not be saved: " + e.Message, this);
+                Debug.LogWarning("PC IPを保存できませんでした。 " + e.Message, this);
             }
         }
 
@@ -677,14 +673,83 @@ namespace QuestPianoMotion.Research.Distributed
             var image = go.GetComponent<Image>();
             image.color = new Color(0.12f, 0.32f, 0.62f, 1f);
             image.raycastTarget = true;
-            var text = CreateText(label + " Label", go.transform, label, Vector2.zero, rect.sizeDelta,
+            var text = CreateText(label + " Label", go.transform, JapaneseLabel(label), Vector2.zero, rect.sizeDelta,
                 18, TextAlignmentOptions.Center, Color.white);
             Stretch(text.rectTransform, 3f, 3f, 2f, 2f, -2f);
             var button = go.GetComponent<Button>();
             button.interactable = true;
             button.targetGraphic = image;
-            button.onClick.AddListener(() => Safety.Run(label, action, confirm));
+            button.onClick.AddListener(() => Safety.Run(JapaneseLabel(label), action, confirm));
             return text;
+        }
+
+        static string JapaneseLabel(string label)
+        {
+            switch (label)
+            {
+                case "DETAIL SETTINGS": return "詳細設定";
+                case "COMPACT / NORMAL": return "折りたたみ / 展開";
+                case "RECENTER UI": return "UIを正面に移動";
+                case "START RAW REC": return "記録開始";
+                case "STOP RAW REC": return "記録停止";
+                case "TIP ON / OFF": return "指先補正 ON / OFF";
+                case "CONNECT": return "接続";
+                case "DISCONNECT": return "切断";
+                case "CALIBRATION A": return "Aを登録";
+                case "CALIBRATION B": return "Bを登録";
+                case "CALIBRATION C": return "Cを登録";
+                case "SAVE CALIBRATION": return "位置合わせを保存";
+                case "CANCEL CAPTURE": return "登録を中止";
+                case "RETRY PASSTHROUGH": return "透過表示を再試行";
+                case "CANCEL CALIBRATION": return "位置合わせを中止";
+                case "CORRECTION ON/OFF": return "指先補正 ON/OFF";
+                case "LEFT / RIGHT": return "使用する手を切替";
+                case "NEXT FINGER": return "使用する指を切替";
+                case "HAND MESH": return "手の表示";
+                case "HAND GAMEOBJECTS": return "手の表示（診断）";
+                case "HAND GPU": return "手の表示（高速）";
+                case "KEYBOARD: 88 KEYS": return "鍵盤：88鍵";
+                case "KEYBOARD: 13 KEYS": return "鍵盤：13鍵";
+                case "PC / CALIBRATION": return "MIDI接続";
+                case "BLE MIDI": return "BLE MIDI";
+                case "CORRECTION": return "補正設定";
+                case "LOG / DIAGNOSTICS": return "記録・診断";
+                case "UI POSITION": return "UI配置";
+                case "NEW RULE SETTINGS": return "新方式のルール設定";
+                case "METHOD NEXT": return "補正方式：旧方式 / 新方式";
+                case "NOTE MAP / LIMITS": return "指の割当 / 補正制限";
+                case "R1 CONTACT ON/OFF": return "接触制約 ON/OFF";
+                case "JOINT RULES ON/OFF": return "関節制約 ON/OFF";
+                case "R2 NONPEN ON/OFF": return "非貫通制約 ON/OFF";
+                case "INTERFERENCE ON/OFF": return "指同士の干渉 ON/OFF";
+                case "MANUAL NOTE MAP ON/OFF": return "手動の打鍵指割当 ON/OFF";
+                case "BACK TO RULE SETTINGS": return "ルール設定に戻る";
+                case "ASSIGN SELECTED FINGER": return "選択中の指を割当";
+                case "CLEAR THIS NOTE": return "このノートの割当解除";
+                case "CLEAR ALL NOTE MAP": return "すべての割当を解除";
+                case "MORE JOINTS / PAD": return "関節・接触位置の詳細";
+                case "BACK TO NOTE MAP": return "指の割当に戻る";
+                case "RULE NEXT FINGER": return "設定する指を切替";
+                case "FACE USER": return "正面に移動";
+                case "RESET PLACEMENT": return "配置をリセット";
+                case "NEARER 10 cm": return "近づける 10 cm";
+                case "FARTHER 10 cm": return "遠ざける 10 cm";
+                case "LIMITS -10 cm": return "最短距離 -10 cm";
+                case "LIMITS +10 cm": return "最長距離 +10 cm";
+                case "BACKSPACE": return "1文字削除";
+                case "CLEAR": return "消去";
+                case "APPLY": return "適用";
+                case "CANCEL": return "キャンセル";
+                default: return label.Replace("STRENGTH", "補正の強さ")
+                    .Replace("FINGER MAX", "指の最大距離").Replace("MAX", "最大補正距離")
+                    .Replace("FINGER PAD", "指の接触位置").Replace("PAD Y", "接触位置Y")
+                    .Replace("Y BAND", "上下の許容範囲").Replace("ENGAGE", "補正開始")
+                    .Replace("RELEASE", "補正解除").Replace("RADIUS", "指の半径")
+                    .Replace("DEPTH", "許容深度").Replace("SMOOTH", "平滑化")
+                    .Replace("MAP NOTE", "MIDIノート").Replace("HAND RMS", "全指RMS上限")
+                    .Replace("RAW CONE", "Rawからの角度").Replace("BEND", "屈曲")
+                    .Replace("OFFSET SPEED", "補正速度").Replace("ITERATIONS", "反復回数");
+            }
         }
 
         void CreateHandCursor()

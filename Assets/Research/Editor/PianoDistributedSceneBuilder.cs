@@ -76,7 +76,8 @@ namespace QuestPianoMotion.Research.Editor
         public static void BuildWindowsDevelopmentValidation(){Build(HostScene,BuildTarget.StandaloneWindows64,Path.Combine(Path.GetTempPath(),"QuestPianoMotion-Windows-Development-"+DateTime.UtcNow.ToString("yyyyMMdd-HHmmss"),"PianoDistributedHost.exe"),BuildOptions.Development|BuildOptions.CompressWithLz4);}        [MenuItem("Quest Piano Motion/Build Android Quest Validation")]
         public static void BuildAndroidValidation()
         {
-            const string output = @"C:\UnityProjects\QuestPianoMotion\QuestPianoMotion\Builds\Android\PianoDistributedQuest.apk";
+            var output = Path.Combine(Directory.GetParent(Application.dataPath).FullName,
+                "Builds", "Android", "PianoDistributedQuest.apk");
             var androidTarget = UnityEditor.Build.NamedBuildTarget.Android;
             var previousBackend = PlayerSettings.GetScriptingBackend(androidTarget);
             var previousArchitectures = PlayerSettings.Android.targetArchitectures;
