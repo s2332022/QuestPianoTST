@@ -1,5 +1,7 @@
 # QuestPianoMotion：Raw / FullRules 表示整合性の予備実験
 
+本書はschema 1の計画履歴。現在の本実験前5試行検証とRaw/Legacy/FullRulesの条件管理は[評価システムv2](pilot_evaluation_v2.md)を使用する。
+
 目的はMIDIと鍵盤形状を利用した補正によるXYZ方向の**表示上の幾何学的整合性**の変化を定量化すること。外部3D Ground Truthは使わず、実際の手指に対する絶対位置精度とは呼ばない。RawとFullRulesは同じ演奏・同じDynamic callbackの対であり、Raw条件の別演奏は主比較に使用しない。旧方式は保持するが比較対象から除外する。
 
 ## 再利用した実装と変更範囲

@@ -1,0 +1,19 @@
+{
+  "description": "TEMPLATE ONLY; not measurements. Clock anchors must bracket each trial. independent_shared_event requires the SAME independently timestamped event in both clocks. A physical touch and its MIDI Note On are NOT such an anchor. For filmed virtual-key highlight use display_event_proxy, document latency bounds and report apparent offsets including display bias.",
+  "sessions": [
+    {
+      "session_id": "REPLACE_UUID",
+      "video_reference": "LOCAL_VIDEO_IDENTIFIER",
+      "video_frame_ms": 16.666667,
+      "display_latency_bound_ms": 30,
+      "anchors": [
+        {"anchor_id": "start", "kind": "display_event_proxy", "video_sec": 0, "quest_sec": 100, "uncertainty_ms": 8.333334, "evidence": "REPLACE corresponding visible highlight and BLE event source/generation/index"},
+        {"anchor_id": "middle", "kind": "display_event_proxy", "video_sec": 10, "quest_sec": 110, "uncertainty_ms": 8.333334, "evidence": "REPLACE"},
+        {"anchor_id": "end", "kind": "display_event_proxy", "video_sec": 20, "quest_sec": 120, "uncertainty_ms": 8.333334, "evidence": "REPLACE"}
+      ],
+      "contacts": [
+        {"source": "BLE", "generation": 1, "onset_event_index": 1, "video_contact_sec": 2.0}
+      ]
+    }
+  ]
+}

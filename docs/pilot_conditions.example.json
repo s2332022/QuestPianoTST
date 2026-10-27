@@ -1,0 +1,31 @@
+{
+  "schema_version": 2,
+  "data_kind": "measured",
+  "protocol_lock": "protocol.lock.json",
+  "protocol_sha256": "REPLACE_WITH_LOCKED_DIGEST_BEFORE_RECORDING",
+  "calibration_file": "calibration_verification.json",
+  "synchronization_file": "synchronization.json",
+  "trials": [
+    {
+      "participant": "P001",
+      "trial_id": "pilot_white_01",
+      "task": "white_single",
+      "method": "FullRules",
+      "logged_method": "FullRules",
+      "hand": "Right",
+      "session_dir": "sessions/REPLACE_UUID_Quest",
+      "session_id": "REPLACE_UUID",
+      "start_sec": 0,
+      "end_sec": 20,
+      "settings_revision": 1,
+      "calibration_id": "REPLACE_CALIBRATION_ID",
+      "video_verified": false,
+      "calibration_verified": false,
+      "build_manifest": "build/PianoDistributedQuest.apk.provenance.json",
+      "apk_path": "build/PianoDistributedQuest.apk",
+      "assignments": [
+        {"source": "BLE", "generation": 1, "onset_event_index": 1, "note": 60, "hand": "Right", "finger": "Index"}
+      ]
+    }
+  ]
+}

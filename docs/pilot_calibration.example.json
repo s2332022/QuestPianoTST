@@ -1,0 +1,30 @@
+{
+  "description": "TEMPLATE ONLY. Add at least four DISTINCT held-out physical points, measured after calibration and bracketing the keyboard region. Never use A/B/C as held-out points. Expected coordinates must come from a documented physical survey, not an arbitrary fingertip value.",
+  "points": [
+    {
+      "session_id": "REPLACE_UUID",
+      "calibration_id": "REPLACE_ID",
+      "point_id": "V1_front_mid_white",
+      "used_for_fit": false,
+      "reference_keyboard_m": [0, 0, 0],
+      "reference_survey": "REPLACE measured ruler/jig dimensions and uncertainty",
+      "measurement_method": "quest_tip",
+      "callback_index": 0,
+      "hand": "Right",
+      "joint": "IndexTip",
+      "uncertainty_mm": null
+    },
+    {
+      "session_id": "REPLACE_UUID",
+      "calibration_id": "REPLACE_ID",
+      "point_id": "V2_external_example",
+      "used_for_fit": false,
+      "reference_keyboard_m": [0, 0, 0],
+      "reference_survey": "REPLACE independent measured physical reference",
+      "measurement_method": "external",
+      "observed_keyboard_m": [0, 0, 0],
+      "registration_reference": "REPLACE external instrument-to-KeyboardRoot registration method and identifier",
+      "uncertainty_mm": 1
+    }
+  ]
+}

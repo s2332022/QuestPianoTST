@@ -110,9 +110,14 @@ namespace QuestPianoMotion.Research.Editor
             var activeTargetBeforeBuild=EditorUserBuildSettings.activeBuildTarget;
             var activeTargetGroupBeforeBuild=EditorUserBuildSettings.selectedBuildTargetGroup;
             BuildReport report;
+            DistributedBuildInfo.BuildMetadata capturedMetadata=null;
+            string capturedGitStatus=null, capturedBuildTimestamp=null;
             try
             {
+                capturedGitStatus=GitOutput("status --porcelain");
                 PrepareBuildInfo();
+                capturedMetadata=JsonUtility.FromJson<DistributedBuildInfo.BuildMetadata>(File.ReadAllText(BuildMetadataPath));
+                capturedBuildTimestamp=File.ReadAllText(BuildInfoPath).Trim();
                 Directory.CreateDirectory(Path.GetDirectoryName(output));
                 report=BuildPipeline.BuildPlayer(new BuildPlayerOptions{scenes=new[]{scene},locationPathName=output,target=target,options=options});
             }
@@ -138,7 +143,28 @@ namespace QuestPianoMotion.Research.Editor
                 }
             }
             if(report.summary.result!=BuildResult.Succeeded)throw new InvalidDataException(target+" build failed: "+report.summary.result);
+            WriteBuildProvenance(output,scene,target.ToString(),capturedMetadata,capturedGitStatus,capturedBuildTimestamp);
             Debug.Log(target+" validation build passed: "+output);
+        }
+        [Serializable] sealed class BuildProvenance
+        {
+            public int schema_version=1;
+            public string artifact_name,artifact_sha256,scene,target,unity_version,build_timestamp_utc,git_status_porcelain;
+            public long artifact_bytes;
+            public DistributedBuildInfo.BuildMetadata build_metadata;
+        }
+        // Sidecar avoids the impossible self-reference of embedding an APK's own hash in that APK.
+        public static void WriteBuildProvenance(string output,string scene,string target,
+            DistributedBuildInfo.BuildMetadata metadata,string gitStatus,string buildTimestamp)
+        {
+            string digest;
+            using(var stream=File.OpenRead(output))
+            using(var sha=System.Security.Cryptography.SHA256.Create())
+                digest=BitConverter.ToString(sha.ComputeHash(stream)).Replace("-","").ToLowerInvariant();
+            var record=new BuildProvenance{artifact_name=Path.GetFileName(output),artifact_sha256=digest,
+                artifact_bytes=new FileInfo(output).Length,scene=scene,target=target,unity_version=Application.unityVersion,
+                build_timestamp_utc=buildTimestamp,git_status_porcelain=gitStatus,build_metadata=metadata};
+            File.WriteAllText(output+".provenance.json",JsonUtility.ToJson(record,true));
         }
         static byte[] ReadExistingBuildMetadata(string path)=>File.Exists(path)?File.ReadAllBytes(path):null;
         static void RestoreBuildMetadata(string path,byte[] previous)

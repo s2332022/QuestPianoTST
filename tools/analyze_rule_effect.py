@@ -179,12 +179,12 @@ def recorded_surface(data, sid, note):
     return data['geometry_cache'][key]
 
 
-def check_pair(raw, row, trial):
+def check_pair(raw, row, trial, expected_method='FullRules'):
     require(row['coordinate_space'] == 'KeyboardRootLocal' and row['position_unit'] == 'm', 'Wrong coordinate space/unit')
     require(int(row['snapshot_id']) == int(raw['snapshot_id']), 'Snapshot mismatch')
     require(abs(finite(row['quest_timestamp_sec'])-raw['timestamp']) <= 1e-6, 'Callback timestamp mismatch')
     require(int(row['settings_revision']) == int(trial['settings_revision']), 'Settings changed within trial')
-    require(row['requested_method'] == 'FullRules' and row['executed_method'] == 'FullRules', 'Trial is not FullRules')
+    require(row['requested_method'] == expected_method and row['executed_method'] == expected_method, 'Trial is not '+expected_method)
     if 'joint_id' in row:
         require(int(row['joint_id'])==int(raw['joint_id']),'Joint ID mismatch')
     if 'unity_frame' in raw and 'unity_frame' in row:
