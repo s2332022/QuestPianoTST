@@ -49,8 +49,8 @@ namespace QuestPianoMotion.Research.Distributed
             RuleButton("BACK TO RULE SETTINGS",6,1,()=>ShowDetails(true,5));
             RuleButton("MAP NOTE -1",6,2,()=>m_RuleMapNote=Mathf.Max(0,m_RuleMapNote-1));
             RuleButton("MAP NOTE +1",6,3,()=>m_RuleMapNote=Mathf.Min(127,m_RuleMapNote+1));
-            RuleButton("ASSIGN SELECTED FINGER",6,4,()=>ChangeRule((c,s)=>s.noteToFinger[m_RuleMapNote]=(int)c.finger));
-            RuleButton("CLEAR THIS NOTE",6,5,()=>ChangeRule((c,s)=>s.noteToFinger[m_RuleMapNote]=-1));
+            RuleButton("ASSIGN SELECTED FINGER",6,4,()=>{if(m_Client!=null)m_Client.PoseCorrection.New.TrySetManualAssignment(m_RuleMapNote,(int)m_Client.CorrectionSettings.finger);});
+            RuleButton("CLEAR THIS NOTE",6,5,()=>{if(m_Client!=null)m_Client.PoseCorrection.New.TrySetManualAssignment(m_RuleMapNote,-1);});
             RuleButton("FINGER MAX -5 mm",6,6,()=>ChangeRule((c,s)=>SelectedRule(c,s).maxDisplacementMeters=Mathf.Max(0,SelectedRule(c,s).maxDisplacementMeters-.005f)));
             RuleButton("FINGER MAX +5 mm",6,7,()=>ChangeRule((c,s)=>SelectedRule(c,s).maxDisplacementMeters=Mathf.Min(.05f,SelectedRule(c,s).maxDisplacementMeters+.005f)));
             RuleButton("HAND RMS -5 mm",6,8,()=>ChangeRule((c,s)=>s.wholeHandRmsLimitMeters=Mathf.Max(0,s.wholeHandRmsLimitMeters-.005f)));
@@ -60,7 +60,7 @@ namespace QuestPianoMotion.Research.Distributed
             RuleButton("MCP BEND -5 deg",6,12,()=>ChangeRule((c,s)=>SelectedRule(c,s).maximumBendDegrees.x=Mathf.Max(0,SelectedRule(c,s).maximumBendDegrees.x-5)));
             RuleButton("MCP BEND +5 deg",6,13,()=>ChangeRule((c,s)=>SelectedRule(c,s).maximumBendDegrees.x=Mathf.Min(180,SelectedRule(c,s).maximumBendDegrees.x+5)));
             RuleButton("MORE JOINTS / PAD",6,14,()=>ShowDetails(true,7));
-            RuleButton("CLEAR ALL NOTE MAP",6,15,()=>ChangeRule((c,s)=>{for(var n=0;n<128;n++)s.noteToFinger[n]=-1;}),true);
+            RuleButton("CLEAR ALL NOTE MAP",6,15,()=>{if(m_Client!=null)for(var n=0;n<128;n++)m_Client.PoseCorrection.New.TrySetManualAssignment(n,-1);},true);
             RuleButton("PIP BEND -5 deg",7,0,()=>ChangeRule((c,s)=>SelectedRule(c,s).maximumBendDegrees.y=Mathf.Max(0,SelectedRule(c,s).maximumBendDegrees.y-5)));
             RuleButton("PIP BEND +5 deg",7,1,()=>ChangeRule((c,s)=>SelectedRule(c,s).maximumBendDegrees.y=Mathf.Min(180,SelectedRule(c,s).maximumBendDegrees.y+5)));
             RuleButton("DIP BEND -5 deg",7,2,()=>ChangeRule((c,s)=>SelectedRule(c,s).maximumBendDegrees.z=Mathf.Max(0,SelectedRule(c,s).maximumBendDegrees.z-5)));
@@ -79,7 +79,7 @@ namespace QuestPianoMotion.Research.Distributed
             RuleButton("RULE NEXT FINGER",7,15,()=>ChangeRule((c,s)=>c.finger=(CorrectionFinger)(((int)c.finger+1)%5)));
             for(var page=5;page<=7;page++)
             {
-                var text=CreateText("Rule details "+page,transform,"",new Vector2(20,-1140),new Vector2(680,100),21,TextAlignmentOptions.TopLeft,Color.white);
+                var text=CreateText("Rule details "+page,transform,"",new Vector2(20,-1140),new Vector2(680,page==6?160:100),21,TextAlignmentOptions.TopLeft,Color.white);
                 m_RuleDetails[page-5]=text;m_DetailItems[text.gameObject]=page;
             }
         }
@@ -90,7 +90,8 @@ namespace QuestPianoMotion.Research.Distributed
             var f=SelectedRule(c,s);var mapped=s.noteToFinger[m_RuleMapNote];
             if(m_RuleMethodButton!=null)m_RuleMethodButton.text="補正方式："+(s.method==HandCorrectionMethod.Legacy?"旧方式":s.method==HandCorrectionMethod.Raw?"補正なし":"新方式")+"（切替）";
             if(m_RuleDetails[0]!=null)m_RuleDetails[0].text=$"{(s.method==HandCorrectionMethod.Legacy?"旧方式":s.method==HandCorrectionMethod.Raw?"補正なし":"新方式")}：接触制約 {s.contact} / 関節制約 {s.UseJoints}\n非貫通制約 {s.UseEnvironment&&s.nonpenetration} / 指同士の干渉 {s.UseEnvironment&&s.interference}\n補正開始 {c.engageSeconds*1000:F0} ms / 補正解除 {c.releaseSeconds*1000:F0} ms / 平滑化 {s.smoothingSeconds*1000:F0} ms\n許容深度 {s.permittedPenetrationMeters*1000:F0} / 半径 {s.segmentRadiusMeters*1000:F0} mm";
-            if(m_RuleDetails[1]!=null)m_RuleDetails[1].text=$"手動割当 {(s.manualNoteMap?"ON":"OFF")} / MIDIノート {m_RuleMapNote} → {(mapped<0?"未割当":((CorrectionFinger)mapped).ToString())}\n対象 {(c.leftHand?"左手":"右手")} {c.finger} / Raw姿勢からの最大角度 {f.maximumChangeFromRawDegrees:F0}度\n指の最大移動 {f.maxDisplacementMeters*1000:F0} mm / 全指RMS上限 {s.wholeHandRmsLimitMeters*1000:F0} mm\n未割当または競合する和音では、すべての鍵盤を離すと解除されます。";
+            if(m_RuleDetails[1]!=null)m_RuleDetails[1].text=$"手動割当 {(s.manualNoteMap?"ON":"OFF")} / 鍵{m_RuleMapNote}→{(mapped<0?"未割当":RuleHandPoseProcessor.FingerJapanese(mapped))}\n"+
+                m_Client.PoseCorrection.New.AssignmentSummaryJapanese+"\n"+m_Client.PoseCorrection.New.AssignmentRejectionJapanese;
             if(m_RuleDetails[2]!=null)m_RuleDetails[2].text=$"{c.finger}の関節角度上限：{f.maximumBendDegrees.x:F0}/{f.maximumBendDegrees.y:F0}/{f.maximumBendDegrees.z:F0}度\n接触位置オフセット XYZ：{f.contactOffsetKeyboardMeters.x*1000:F0}/{f.contactOffsetKeyboardMeters.y*1000:F0}/{f.contactOffsetKeyboardMeters.z*1000:F0} mm\n補正速度上限 {s.maximumOffsetSpeedMetersPerSecond:F2} m/s / 反復 {s.iterations}回\n幾何制約による補正です。実機精度の検証は別途必要です。";
         }
     }

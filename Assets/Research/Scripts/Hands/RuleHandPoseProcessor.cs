@@ -20,6 +20,45 @@ namespace QuestPianoMotion.Research
     public sealed class RuleHandPoseProcessor : IHandPoseProcessor
     {
         readonly IdentityHandPoseProcessor identity=new IdentityHandPoseProcessor();
+        // Occupancy outlives contact animation, watchdog resets and safety stops.
+        readonly RuleFingerContact[] owners=new RuleFingerContact[5];
+        static readonly string[] fingerNamesJapanese={"親指","人差し指","中指","薬指","小指"};
+        public string AssignmentRejectionJapanese { get; private set; }="";
+        public int AssignedFinger(int note)
+        {for(var f=0;f<5;f++)if(owners[f].source!=null && owners[f].note==note)return f;return -1;}
+        public int AssignedNote(int finger)=>owners[finger].source==null?-1:owners[finger].note;
+        public static string FingerJapanese(int finger)=>fingerNamesJapanese[finger];
+        public string AssignmentSummaryJapanese
+        {
+            get
+            {
+                var text="";
+                for(var f=0;f<5;f++)if(owners[f].source!=null)
+                    text+=(text.Length==0?"":" / ")+$"{owners[f].note}→{FingerJapanese(f)}";
+                return text.Length==0?"現在の鍵→指：なし":"現在の鍵→指："+text;
+            }
+        }
+        bool Reject(string reason,string japanese)
+        {Reason=reason;AssignmentRejectionJapanese=japanese;return false;}
+        public bool TrySetManualAssignment(int note,int finger)
+        {
+            if(note<0 || note>127 || finger < -1 || finger>4 || !settings.IsValid)
+                return Reject("invalid_finger","割当拒否：鍵または指の指定が不正です。");
+            var old=settings.noteToFinger[note];
+            if(old==finger)return true;
+            // Held but unassigned notes also cannot acquire a finger mid-note.
+            for(var s=0;s<2;s++)for(var c=0;c<16;c++)if(held[s,c,note])
+                return Reject("assignment_held","割当拒否：打鍵中の鍵はNote Offまで変更できません。");
+            if(old>=0 && finger>=0)
+                return Reject("key_assignment_conflict","割当拒否：この鍵には既に指が設定されています。解除してから設定してください。");
+            settings.noteToFinger[note]=finger;return true;
+        }
+        void ClearVisual(int f,string reason)
+        {
+            Contacts[f]=new RuleFingerContact{note=-1,reason=reason};tipOffsets[f]=Vector3.zero;previousReleaseFactor[f]=1;
+            for(var j=0;j<4;j++)lastDisplacements[f,j]=0;
+            for(var j=0;j<3;j++)lastRotations[f,j]=releaseRotations[f,j]=Quaternion.identity;
+        }
         readonly bool[,,] held=new bool[2,16,128];
         readonly long[] generations={-1,-1};
         readonly double[] lastEvents={double.NegativeInfinity,double.NegativeInfinity};
@@ -72,7 +111,11 @@ namespace QuestPianoMotion.Research
             if(type==MidiEventType.ControlChange && (message.ControlNumber==120 || message.ControlNumber==123))
             {
                 for(var n=0;n<128;n++)if(held[s,channel,n]){held[s,channel,n]=false;HeldCount--;}
-                for(var f=0;f<5;f++)if(Contacts[f].source==source && Contacts[f].channel==message.Channel)Release(f,observed,"all_notes_off");
+                for(var f=0;f<5;f++)
+                {
+                    if(owners[f].source==source && owners[f].channel==message.Channel)owners[f]=default;
+                    if(Contacts[f].source==source && Contacts[f].channel==message.Channel)Release(f,observed,"all_notes_off");
+                }
                 if(HeldCount==0)blocked=false;return;
             }
             if(type!=MidiEventType.NoteOn && type!=MidiEventType.NoteOff)return;
@@ -84,21 +127,37 @@ namespace QuestPianoMotion.Research
             if(on)
             {
                 if(!settings.IsValid){Reset("invalid_settings");return;}
-                if(was || (!settings.manualNoteMap && HeldCount!=1) || blocked){Reset("ambiguous_notes");return;}
+                if(was)
+                {
+                    Reject("ambiguous_notes","補正停止：同一ノートのNote Onが重複しました。全鍵のNote Offを待ちます。");
+                    Reset("ambiguous_notes");return;
+                }
+                var keyOwner=AssignedFinger(note);
+                if(keyOwner>=0)
+                {Reject("key_assignment_conflict",$"割当拒否：鍵{note}は既に{FingerJapanese(keyOwner)}が占有しています。Note Offまで維持します。");return;}
+                for(var otherSource=0;otherSource<2;otherSource++)for(var otherChannel=0;otherChannel<16;otherChannel++)
+                    if((otherSource!=s || otherChannel!=channel) && held[otherSource,otherChannel,note])
+                    {
+                        Reject("ambiguous_notes","補正停止：同じ鍵の未解除イベントがあります。全鍵のNote Offを待ちます。");
+                        Reset("ambiguous_notes");return;
+                    }
                 var f=settings.manualNoteMap?settings.noteToFinger[note]:(int)common.finger;
                 if(f<0){Reset("unmapped_note");return;}
-                if(f<0 || f>4){Reset("invalid_finger");return;}
-                if(settings.manualNoteMap)
-                    for(var otherSource=0;otherSource<2;otherSource++)for(var otherChannel=0;otherChannel<16;otherChannel++)for(var otherNote=0;otherNote<128;otherNote++)
-                        if(held[otherSource,otherChannel,otherNote] && (otherSource!=s || otherChannel!=channel || otherNote!=note) && settings.noteToFinger[otherNote]==f)
-                        {Reset("finger_assignment_conflict");return;}
-                if(Contacts[f].state==TipCorrectionState.Engaging || Contacts[f].state==TipCorrectionState.Active)
-                {Reset("finger_assignment_conflict");return;}
+                if(f>4){Reset("invalid_finger");return;}
+                if(owners[f].source!=null)
+                {Reject("finger_assignment_conflict",$"割当拒否：{FingerJapanese(f)}は既に鍵{owners[f].note}を占有しています。Note Offまで維持します。");return;}
+                if((!settings.manualNoteMap && HeldCount!=1) || blocked){Reset("ambiguous_notes");return;}
+                // A released key can be retriggered by another finger immediately. Remove
+                // the old frozen release pose before engaging its new owner.
+                for(var other=0;other<5;other++)if(Contacts[other].note==note)ClearVisual(other,"key_retriggered");
+                ClearVisual(f,"new_assignment");
                 Contacts[f]=new RuleFingerContact{note=note,channel=message.Channel,generation=generation,eventIndex=message.EventIndex,onsetEventIndex=message.EventIndex,
                     source=source,received=received,observed=observed,onset=observed,phaseStart=observed,state=TipCorrectionState.Engaging,reason="note_on"};
+                owners[f]=Contacts[f];
             }
             else
             {
+                for(var f=0;f<5;f++)if(owners[f].source==source && owners[f].channel==message.Channel && owners[f].note==note)owners[f]=default;
                 for(var f=0;f<5;f++)if(Contacts[f].source==source && Contacts[f].channel==message.Channel && Contacts[f].note==note)
                 {var contact=Contacts[f];contact.eventIndex=message.EventIndex;contact.received=received;contact.observed=observed;Contacts[f]=contact;Release(f,observed,"note_off");}
                 if(HeldCount==0)blocked=false;
@@ -115,7 +174,12 @@ namespace QuestPianoMotion.Research
         {
             var s=source=="BLE"?0:source=="UDP"?1:-1;if(s<0)return;
             for(var c=0;c<16;c++)for(var n=0;n<128;n++)if(held[s,c,n]){held[s,c,n]=false;HeldCount--;}
-            for(var f=0;f<5;f++)if(Contacts[f].source==source)Release(f,time,reason);
+            for(var f=0;f<5;f++)
+            {
+                if(owners[f].source==source)owners[f]=default;
+                // Disconnect is a safety boundary: do not carry a frozen pose into a new generation.
+                if(Contacts[f].source==source)ClearVisual(f,reason);
+            }
             if(HeldCount==0)blocked=false;
         }
         public void SynchronizeUdpOwnership(byte[] bits,double time)
@@ -171,7 +235,7 @@ namespace QuestPianoMotion.Research
                 var c=Contacts[f];
                 var contactSource=c.source=="BLE"?0:c.source=="UDP"?1:-1;
                 var contactHeld=contactSource>=0 && c.channel>=1 && c.channel<=16 && c.note>=0 && held[contactSource,c.channel-1,c.note];
-                if(settings.manualNoteMap && (c.state==TipCorrectionState.Engaging || c.state==TipCorrectionState.Active || contactHeld) && settings.noteToFinger[c.note]!=f)
+                if(settings.manualNoteMap && contactHeld && settings.noteToFinger[c.note]!=f)
                 {Reset("assignment_changed");return;}
                 if(c.state!=TipCorrectionState.Inactive && (!tip.PoseValid || !DisplayFingerSolver.Finite(tip.Pose.position))) {Reset("tracking_invalid");return;}
                 if(c.state!=TipCorrectionState.Inactive && (now<c.observed || now<c.received)){Reason="before_midi_observation";continue;}

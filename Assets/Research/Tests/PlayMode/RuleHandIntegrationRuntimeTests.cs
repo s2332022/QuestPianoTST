@@ -35,6 +35,50 @@ namespace QuestPianoMotion.Research.Tests
             }
             return r;
         }
+        [UnityTest] public IEnumerator ExclusiveAssignmentsSurviveChordsRetriggersTimeoutsAndReconnects()
+        {
+            var root=new GameObject("Exclusive runtime keyboard",typeof(VirtualPianoKeyboard));var origin=new GameObject("Exclusive runtime origin");
+            try
+            {
+                var common=new MidiTipCorrectionSettings{enabled=true,strength=1,maxHoldSeconds=.4f};
+                var rules=new RuleHandPoseSettings{method=HandCorrectionMethod.FullRules,manualNoteMap=true};
+                rules.noteToFinger[60]=1;rules.noteToFinger[64]=2;rules.noteToFinger[65]=1;
+                var p=new RuleHandPoseProcessor(common,rules,root.GetComponent<VirtualPianoKeyboard>(),()=>true,()=>origin.transform);
+                var raw=Frame();var display=new HandPoseFrame(raw.RightJoints.Length);
+                void Midi(int note,double t,bool on=true,string source="BLE",long generation=1,int channel=1)
+                    =>p.ObserveMidi(source,new MidiMessage(t,1,"exclusive runtime",on?MidiEventType.NoteOn:MidiEventType.NoteOff,channel,note,on?100:0,-1,-1),t,t,generation);
+                void Pose(double t)
+                {
+                    raw.AbsoluteTimeSeconds=t;p.Process(raw,display);
+                    var notes=new System.Collections.Generic.HashSet<int>();
+                    for(var f=0;f<5;f++)if(p.Contacts[f].state==TipCorrectionState.Active || p.Contacts[f].state==TipCorrectionState.Engaging)
+                    {Assert.That(notes.Add(p.Contacts[f].note),Is.True,"Two fingers must never attract to one key");Assert.That(p.AssignedFinger(p.Contacts[f].note),Is.EqualTo(f));}
+                }
+                Midi(60,10);Midi(64,10.001);
+                for(var f=0;f<20;f++){Pose(10.01+f/100d);yield return null;}
+                Assert.That(p.Contacts[1].state,Is.EqualTo(TipCorrectionState.Active));Assert.That(p.Contacts[2].state,Is.EqualTo(TipCorrectionState.Active));
+                var first=p.Contacts[1];Midi(65,10.21);Assert.That(p.Contacts[1],Is.EqualTo(first));
+                Assert.That(p.AssignmentRejectionJapanese,Does.Contain("割当拒否"));
+                rules.noteToFinger[60]=3;Midi(60,10.22,source:"UDP");
+                Assert.That(p.AssignedFinger(60),Is.EqualTo(1));Assert.That(p.Contacts[3].state,Is.EqualTo(TipCorrectionState.Inactive));
+                rules.noteToFinger[60]=1;Midi(60,10.23,false,"UDP");Midi(65,10.24,false);
+                Midi(60,10.25,false);Assert.That(p.AssignedFinger(60),Is.EqualTo(-1));
+                Assert.That(p.Contacts[1].state,Is.EqualTo(TipCorrectionState.Releasing));
+                p.TrySetManualAssignment(60,-1);p.TrySetManualAssignment(60,3);Midi(60,10.26);Pose(10.27);
+                Assert.That(p.Contacts[1].state,Is.EqualTo(TipCorrectionState.Inactive));Assert.That(p.AssignedFinger(60),Is.EqualTo(3));
+                Midi(60,10.28);Pose(10.29);Assert.That(p.Reason,Is.EqualTo("await_all_notes_off"));
+                Assert.That(p.AssignedFinger(60),Is.EqualTo(3));
+                Midi(60,10.30,false);Midi(64,10.31,false);Midi(60,10.32);
+                for(var f=0;f<65;f++){Pose(10.33+f/100d);yield return null;}
+                Assert.That(p.Contacts[3].state,Is.EqualTo(TipCorrectionState.Inactive));Assert.That(p.AssignedFinger(60),Is.EqualTo(3),"Missing Note Off must retain occupancy after animation timeout");
+                p.EndSession(11);Assert.That(p.AssignedFinger(60),Is.EqualTo(3));
+                p.DisconnectSource("BLE",11.01);Assert.That(p.HeldCount,Is.Zero);Assert.That(p.AssignedFinger(60),Is.EqualTo(-1));
+                Midi(60,11.02,generation:2);Midi(60,11.03,false,generation:1);Pose(11.04);
+                Assert.That(p.AssignedFinger(60),Is.EqualTo(3));Midi(60,11.05,false,generation:2);
+                Assert.That(p.AssignedFinger(60),Is.EqualTo(-1));
+            }
+            finally{Object.DestroyImmediate(root);Object.DestroyImmediate(origin);}
+        }
         [UnityTest] public IEnumerator ActualBleRouteWritesSeparateNewMetricsAndDrivesDisplayMesh()
         {
             var previous=ResearchServices.TrackingOrigin;var origin=new GameObject("New hand test origin");Origin(origin.transform);
@@ -147,6 +191,33 @@ namespace QuestPianoMotion.Research.Tests
                 mode.onClick.Invoke();
                 Assert.That(client.RuleSettings.method,Is.EqualTo(HandCorrectionMethod.Legacy));
                 mode.onClick.Invoke();
+                client.RuleSettings.manualNoteMap=true;
+                common.finger=CorrectionFinger.Index;
+                uiGo.transform.Find("ASSIGN SELECTED FINGER").GetComponent<Button>().onClick.Invoke();
+                common.finger=CorrectionFinger.Middle;
+                uiGo.transform.Find("ASSIGN SELECTED FINGER").GetComponent<Button>().onClick.Invoke();
+                Assert.That(client.RuleSettings.noteToFinger[60],Is.EqualTo(1));
+                var now=ResearchServices.Clock.AbsoluteSeconds;
+                client.PoseCorrection.New.ObserveMidi("BLE",new MidiMessage(now,1,"UI assignment",MidiEventType.NoteOn,1,60,100,-1,-1),now,now,1);
+                Assert.That(client.PoseCorrection.New.AssignedFinger(60),Is.EqualTo(1));
+                uiGo.transform.Find("CLEAR THIS NOTE").GetComponent<Button>().onClick.Invoke();
+                Assert.That(client.RuleSettings.noteToFinger[60],Is.EqualTo(1));
+                typeof(DistributedQuestUi).GetMethod("UpdateRuleDetails",Private).Invoke(ui,null);
+                var assignmentText=uiGo.transform.Find("Rule details 6").GetComponent<TMP_Text>().text;
+                Assert.That(assignmentText,Does.Contain("60→人差し指"));Assert.That(assignmentText,Does.Contain("割当拒否"));
+                client.PoseCorrection.New.DisconnectSource("BLE",now+.01);
+                for(var f=0;f<5;f++)
+                {
+                    client.RuleSettings.noteToFinger[100+f]=f;
+                    client.PoseCorrection.New.ObserveMidi("BLE",new MidiMessage(now+.02,f+2,"UI chord",MidiEventType.NoteOn,1,100+f,100,-1,-1),now+.02,now+.02,2);
+                    Assert.That(client.PoseCorrection.New.AssignedFinger(100+f),Is.EqualTo(f));
+                }
+                client.PoseCorrection.New.TrySetManualAssignment(127,0);client.PoseCorrection.New.TrySetManualAssignment(127,1);
+                ui.ShowDetails(true,6);typeof(DistributedQuestUi).GetMethod("UpdateRuleDetails",Private).Invoke(ui,null);
+                Canvas.ForceUpdateCanvases();var assignmentLabel=uiGo.transform.Find("Rule details 6").GetComponent<TMP_Text>();assignmentLabel.ForceMeshUpdate();
+                Assert.That(assignmentLabel.isTextTruncated,Is.False,"All five assignments and the refusal must remain readable");
+                Assert.That(assignmentLabel.text,Does.Contain("104→小指"));
+                client.PoseCorrection.New.DisconnectSource("BLE",now+.03);
                 typeof(PerformanceUiSafety).GetMethod("SetLocked",Private).Invoke(ui.Safety,new object[]{true});mode.onClick.Invoke();
                 Assert.That(client.RuleSettings.method,Is.EqualTo(HandCorrectionMethod.FullRules));
             }
