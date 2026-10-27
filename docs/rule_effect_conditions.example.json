@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "description": "TEMPLATE ONLY. Replace all placeholders using immutable logs and fixed-camera video. Times are absolute Quest Stopwatch seconds. This example intentionally fails verification.",
+  "trials": [
+    {
+      "participant": "P001",
+      "trial_id": "white_Index_01",
+      "task": "white_single",
+      "session_dir": "../local_data/REPLACE_SESSION_Quest",
+      "session_id": "REPLACE_UUID_FROM_METADATA",
+      "start_sec": 0,
+      "end_sec": 1,
+      "settings_revision": 1,
+      "calibration_id": "REPLACE_FROM_RULE_CSV",
+      "video_verified": false,
+      "video_reference": "LOCAL_ONLY_REFERENCE_NO_PERSONAL_DATA_IN_GIT",
+      "calibration_verified": false,
+      "calibration_note": "Record alignment check and any recentering here",
+      "tempo_bpm": 60,
+      "repetition": 1,
+      "static_intervals": [],
+      "assignments": [
+        {
+          "source": "BLE",
+          "generation": 1,
+          "onset_event_index": 0,
+          "note": 60,
+          "hand": "Right",
+          "finger": "Index"
+        }
+      ]
+    }
+  ]
+}
